@@ -12,8 +12,10 @@
 
 
 from oslo_db.sqlalchemy import models
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import Index
 from sqlalchemy import Integer
@@ -69,3 +71,51 @@ class HostMapping(API_BASE):
     cell_id = Column(Integer, ForeignKey('cell_mappings.id'),
             nullable=False)
     host = Column(String(255), nullable=False)
+
+
+class Flavors(API_BASE):
+    """Represents possible flavors for instances"""
+    __tablename__ = 'flavors'
+    __table_args__ = (
+        schema.UniqueConstraint("flavorid", name="uniq_flavors0flavorid"),
+        schema.UniqueConstraint("name", name="uniq_flavors0name"))
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255))
+    memory_mb = Column(Integer, nullable=False)
+    vcpus = Column(Integer, nullable=False)
+    root_gb = Column(Integer)
+    ephemeral_gb = Column(Integer)
+    flavorid = Column(String(255))
+    swap = Column(Integer, nullable=False, default=0)
+    rxtx_factor = Column(Float, default=1)
+    vcpu_weight = Column(Integer)
+    disabled = Column(Boolean, default=False)
+    is_public = Column(Boolean, default=True)
+
+
+class FlavorExtraSpecs(API_BASE):
+    """Represents additional specs as key/value pairs for a flavor"""
+    __tablename__ = 'flavor_extra_specs'
+    __table_args__ = (Index('flavor_id_key_idx', 'flavor_id', 'key'),
+                      schema.UniqueConstraint('flavor_id', 'key',
+                        name='uniq_flavor_extra_specs0flavor_id0key'))
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(255))
+    value = Column(String(255))
+    flavor_id = Column(Integer, ForeignKey('flavors.id'),
+              nullable=False)
+
+
+class FlavorProjects(API_BASE):
+    """Represent projects associated to flavors"""
+    __tablename__ = 'flavor_projects'
+    __table_args__ = (schema.UniqueConstraint(
+        'flavor_id', 'project_id',
+        name='uniq_flavor_projects0flavor_id0project_id'),)
+
+    id = Column(Integer, primary_key=True)
+    flavor_id = Column(Integer, ForeignKey('flavors.id'),
+                              nullable=False)
+    project_id = Column(String(255))
