@@ -12,11 +12,14 @@
 
 
 from oslo_db.sqlalchemy import models
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import Index
 from sqlalchemy import Integer
+from sqlalchemy import orm
 from sqlalchemy import schema
 from sqlalchemy import String
 from sqlalchemy import Text
@@ -69,3 +72,69 @@ class HostMapping(API_BASE):
     cell_id = Column(Integer, ForeignKey('cell_mappings.id'),
             nullable=False)
     host = Column(String(255), nullable=False)
+
+
+# NOTE(dheeraj): Flavors and realted tables do not need SoftDeleteMixin but
+# it cannot be removed without breaking lot of tests, so is being kept for now
+class Flavors(API_BASE, models.SoftDeleteMixin):
+    """Represents possible flavors for instances"""
+    __tablename__ = 'flavors'
+    __table_args__ = (
+        schema.UniqueConstraint("flavorid", "deleted",
+                                name="uniq_flavors0flavorid0deleted"),
+        schema.UniqueConstraint("name", "deleted",
+                                name="uniq_flavors0name0deleted"))
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255))
+    memory_mb = Column(Integer, nullable=False)
+    vcpus = Column(Integer, nullable=False)
+    root_gb = Column(Integer)
+    ephemeral_gb = Column(Integer)
+    flavorid = Column(String(255))
+    swap = Column(Integer, nullable=False, default=0)
+    rxtx_factor = Column(Float, default=1)
+    vcpu_weight = Column(Integer)
+    disabled = Column(Boolean, default=False)
+    is_public = Column(Boolean, default=True)
+
+
+class FlavorExtraSpecs(API_BASE, models.SoftDeleteMixin):
+    """Represents additional specs as key/value pairs for a flavor"""
+    __tablename__ = 'flavor_extra_specs'
+    __table_args__ = (
+        Index('flavor_extra_specs_flavor_id_key_idx', 'flavor_id', 'key'),
+        schema.UniqueConstraint(
+            'flavor_id', 'key', 'deleted',
+            name='uniq_flavor_extra_specs0flavor_id0key0deleted'),
+        {'mysql_collate': 'utf8_bin'},
+    )
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(255))
+    value = Column(String(255))
+    flavor_id = Column(Integer, ForeignKey('flavors.id'),
+              nullable=False)
+    flavor = orm.relationship(
+        Flavors, backref="extra_specs", foreign_keys=flavor_id,
+        primaryjoin='and_('
+                    'FlavorExtraSpecs.flavor_id == Flavors.id,'
+                    'FlavorExtraSpecs.deleted == 0)')
+
+
+class FlavorProjects(API_BASE, models.SoftDeleteMixin):
+    """Represent projects associated to flavors"""
+    __tablename__ = 'flavor_projects'
+    __table_args__ = (schema.UniqueConstraint(
+        'flavor_id', 'project_id', 'deleted',
+        name='uniq_flavor_projects0flavor_id0project_id0deleted'),)
+
+    id = Column(Integer, primary_key=True)
+    flavor_id = Column(Integer, ForeignKey('flavors.id'),
+                              nullable=False)
+    project_id = Column(String(255))
+    flavor = orm.relationship(
+        Flavors, backref="projects", foreign_keys=flavor_id,
+        primaryjoin='and_('
+                    'FlavorProjects.flavor_id == Flavors.id,'
+                    'FlavorProjects.deleted == 0)')

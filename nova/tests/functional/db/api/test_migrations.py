@@ -188,6 +188,51 @@ class NovaAPIMigrationsWalk(test_migrations.WalkVersionsMixin):
         self.assertEqual(['id'], fk['referred_columns'])
         self.assertEqual(['cell_id'], fk['constrained_columns'])
 
+    def _check_004(self, engine, data):
+        # flavors
+        for column in ['created_at', 'updated_at', 'name', 'id', 'memory_mb',
+            'vcpus', 'swap', 'vcpu_weight', 'flavorid', 'rxtx_factor',
+            'root_gb', 'ephemeral_gb', 'disabled', 'is_public',
+            'deleted', 'deleted_at']:
+            self.assertColumnExists(engine, 'flavors', column)
+        self.assertUniqueConstraintExists(engine, 'flavors',
+                ['flavorid', 'deleted'])
+        self.assertUniqueConstraintExists(engine, 'flavors',
+                ['name', 'deleted'])
+
+        # flavor_extra_specs
+        for column in ['created_at', 'updated_at', 'id', 'flavor_id', 'key',
+            'value', 'deleted', 'deleted_at']:
+            self.assertColumnExists(engine, 'flavor_extra_specs', column)
+
+        self.assertIndexExists(
+            engine, 'flavor_extra_specs',
+            'flavor_extra_specs_flavor_id_key_idx')
+        self.assertUniqueConstraintExists(engine, 'flavor_extra_specs',
+            ['flavor_id', 'key', 'deleted'])
+
+        inspector = reflection.Inspector.from_engine(engine)
+        # There should only be one foreign key here
+        fk = inspector.get_foreign_keys('flavor_extra_specs')[0]
+        self.assertEqual('flavors', fk['referred_table'])
+        self.assertEqual(['id'], fk['referred_columns'])
+        self.assertEqual(['flavor_id'], fk['constrained_columns'])
+
+        # flavor_projects
+        for column in ['created_at', 'updated_at', 'id', 'flavor_id',
+            'project_id', 'deleted', 'deleted_at']:
+            self.assertColumnExists(engine, 'flavor_projects', column)
+
+        self.assertUniqueConstraintExists(engine, 'flavor_projects',
+            ['flavor_id', 'project_id', 'deleted'])
+
+        inspector = reflection.Inspector.from_engine(engine)
+        # There should only be one foreign key here
+        fk = inspector.get_foreign_keys('flavor_projects')[0]
+        self.assertEqual('flavors', fk['referred_table'])
+        self.assertEqual(['id'], fk['referred_columns'])
+        self.assertEqual(['flavor_id'], fk['constrained_columns'])
+
 
 class TestNovaAPIMigrationsWalkSQLite(NovaAPIMigrationsWalk,
                                       test_base.DbTestCase,
