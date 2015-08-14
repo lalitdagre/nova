@@ -61,6 +61,7 @@ from nova import block_device
 from nova.compute import task_states
 from nova.compute import vm_states
 import nova.context
+from nova.db.sqlalchemy import api_models
 from nova.db.sqlalchemy import models
 from nova import exception
 from nova.i18n import _, _LI, _LE, _LW
@@ -4592,6 +4593,22 @@ def console_get(context, console_id, instance_uuid=None):
 ##################
 
 
+def _flavor_by_name_exist(context, f_name):
+    try:
+        flavor_get_by_name(context, f_name)
+        return True
+    except exception.FlavorNotFoundByName:
+        return False
+
+
+def _flavor_by_flavor_id_exist(context, f_id):
+    try:
+        flavor_get(context, f_id)
+        return True
+    except exception.FlavorNotFound:
+        return False
+
+
 def flavor_create(context, values, projects=None):
     """Create a new instance type. In order to pass in extra specs,
     the values dict should contain a 'extra_specs' key/value pair:
@@ -4599,26 +4616,29 @@ def flavor_create(context, values, projects=None):
     {'extra_specs' : {'k1': 'v1', 'k2': 'v2', ...}}
 
     """
+    if (_flavor_by_flavor_id_exist(context, values['flavorid'])):
+        raise exception.FlavorIdExists(flavor_id=values['flavorid'])
+    if (_flavor_by_name_exist(context, values['name'])):
+        raise exception.FlavorExists(name=values['name'])
     specs = values.get('extra_specs')
     specs_refs = []
     if specs:
         for k, v in specs.items():
-            specs_ref = models.InstanceTypeExtraSpecs()
+            specs_ref = api_models.FlavorExtraSpecs()
             specs_ref['key'] = k
             specs_ref['value'] = v
             specs_refs.append(specs_ref)
 
     values['extra_specs'] = specs_refs
-    instance_type_ref = models.InstanceTypes()
-    instance_type_ref.update(values)
-
+    flavor_ref = api_models.Flavors()
+    flavor_ref.update(values)
     if projects is None:
         projects = []
 
-    session = get_session()
+    session = get_api_session()
     with session.begin():
         try:
-            instance_type_ref.save()
+            flavor_ref.save(session)
         except db_exc.DBDuplicateEntry as e:
             if 'flavorid' in e.columns:
                 raise exception.FlavorIdExists(flavor_id=values['flavorid'])
@@ -4626,12 +4646,12 @@ def flavor_create(context, values, projects=None):
         except Exception as e:
             raise db_exc.DBError(e)
         for project in set(projects):
-            access_ref = models.InstanceTypeProjects()
-            access_ref.update({"instance_type_id": instance_type_ref.id,
+            access_ref = api_models.FlavorProjects()
+            access_ref.update({"flavor_id": flavor_ref.id,
                                "project_id": project})
-            access_ref.save()
+            access_ref.save(session)
 
-    return _dict_with_extra_specs(instance_type_ref)
+    return _dict_with_extra_specs(flavor_ref)
 
 
 def _dict_with_extra_specs(inst_type_query):

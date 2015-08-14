@@ -23,8 +23,6 @@ from nova.tests.unit.objects import test_objects
 fake_flavor = {
     'created_at': None,
     'updated_at': None,
-    'deleted_at': None,
-    'deleted': 0,
     'id': 1,
     'name': 'm1.foo',
     'memory_mb': 1024,

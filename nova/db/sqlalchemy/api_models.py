@@ -19,6 +19,7 @@ from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import Index
 from sqlalchemy import Integer
+from sqlalchemy import orm
 from sqlalchemy import schema
 from sqlalchemy import String
 from sqlalchemy import Text
@@ -106,6 +107,8 @@ class FlavorExtraSpecs(API_BASE):
     value = Column(String(255))
     flavor_id = Column(Integer, ForeignKey('flavors.id'),
               nullable=False)
+    flavor = orm.relationship(Flavors, backref="extra_specs",
+                 foreign_keys=flavor_id)
 
 
 class FlavorProjects(API_BASE):
@@ -119,3 +122,5 @@ class FlavorProjects(API_BASE):
     flavor_id = Column(Integer, ForeignKey('flavors.id'),
                               nullable=False)
     project_id = Column(String(255))
+    flavor = orm.relationship(Flavors, backref="projects",
+                 foreign_keys=flavor_id)
