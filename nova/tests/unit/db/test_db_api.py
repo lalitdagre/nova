@@ -3234,7 +3234,8 @@ class ServiceTestCase(test.TestCase, ModelsObjectComparatorMixin):
                           self.ctxt, values)
 
 
-class BaseInstanceTypeTestCase(test.TestCase, ModelsObjectComparatorMixin):
+class BaseInstanceTypeTestCase(test.BothDBTestCase,
+                               ModelsObjectComparatorMixin):
     def setUp(self):
         super(BaseInstanceTypeTestCase, self).setUp()
         self.ctxt = context.get_admin_context()

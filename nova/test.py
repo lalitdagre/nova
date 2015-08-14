@@ -453,3 +453,9 @@ class MatchType(object):
 
     def __repr__(self):
         return "<MatchType:" + str(self.wanttype) + ">"
+
+
+class BothDBTestCase(TestCase):
+    def setUp(self):
+        super(BothDBTestCase, self).setUp()
+        self.useFixture(nova_fixtures.Database(database='api'))

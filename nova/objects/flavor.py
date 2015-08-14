@@ -24,7 +24,7 @@ OPTIONAL_FIELDS = ['extra_specs', 'projects']
 
 # TODO(berrange): Remove NovaObjectDictCompat
 @base.NovaObjectRegistry.register
-class Flavor(base.NovaPersistentObject, base.NovaObject,
+class Flavor(base.NovaTimestampObject, base.NovaObject,
              base.NovaObjectDictCompat):
     # Version 1.0: Initial version
     # Version 1.1: Added save_projects(), save_extra_specs(), removed
