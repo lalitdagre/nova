@@ -4673,6 +4673,19 @@ def _dict_with_extra_specs(inst_type_query):
     return inst_type_dict
 
 
+def _flavor_get_query_api(context, session=None, read_deleted=None):
+    query = model_query(context, api_models.Flavors, session=session,
+                       read_deleted=read_deleted).\
+                       options(joinedload('extra_specs'))
+    if not context.is_admin:
+        the_filter = [api_models.Flavors.is_public == true()]
+        the_filter.extend([
+            api_models.Flavors.projects.any(project_id=context.project_id)
+        ])
+        query = query.filter(or_(*the_filter))
+    return query
+
+
 def _flavor_get_query(context, session=None, read_deleted=None):
     query = model_query(context, models.InstanceTypes, session=session,
                        read_deleted=read_deleted).\
@@ -4684,6 +4697,64 @@ def _flavor_get_query(context, session=None, read_deleted=None):
         ])
         query = query.filter(or_(*the_filter))
     return query
+
+
+@require_context
+def flavor_get_all_api(context, inactive=False, filters=None,
+                   sort_key='flavorid', sort_dir='asc', limit=None,
+                   marker=None):
+    """Returns all flavors.
+    """
+    filters = filters or {}
+
+    # FIXME(sirp): now that we have the `disabled` field for flavors, we
+    # should probably remove the use of `deleted` to mark inactive. `deleted`
+    # should mean truly deleted, e.g. we can safely purge the record out of the
+    # database.
+    read_deleted = "yes" if inactive else "no"
+    session = get_api_session()
+    query = _flavor_get_query_api(context, session, read_deleted=read_deleted)
+
+    if 'min_memory_mb' in filters:
+        query = query.filter(
+                api_models.Flavors.memory_mb >= filters['min_memory_mb'])
+
+    if 'min_root_gb' in filters:
+        query = query.filter(
+                api_models.Flavors.root_gb >= filters['min_root_gb'])
+
+    if 'disabled' in filters:
+        query = query.filter(
+                api_models.Flavors.disabled == filters['disabled'])
+
+    if 'is_public' in filters and filters['is_public'] is not None:
+        the_filter = [api_models.Flavors.is_public == filters['is_public']]
+        if filters['is_public'] and context.project_id is not None:
+            the_filter.extend([
+                api_models.Flavors.projects.any(
+                    project_id=context.project_id, deleted=0)
+            ])
+        if len(the_filter) > 1:
+            query = query.filter(or_(*the_filter))
+        else:
+            query = query.filter(the_filter[0])
+
+    marker_row = None
+    if marker is not None:
+        marker_row = _flavor_get_query(context, read_deleted=read_deleted).\
+                    filter_by(flavorid=marker).\
+                    first()
+        if not marker_row:
+            raise exception.MarkerNotFound(marker)
+
+    query = sqlalchemyutils.paginate_query(query, api_models.Flavors, limit,
+                                           [sort_key, 'id'],
+                                           marker=marker_row,
+                                           sort_dir=sort_dir)
+
+    inst_types = query.all()
+
+    return [_dict_with_extra_specs(i) for i in inst_types]
 
 
 @require_context
@@ -4740,8 +4811,9 @@ def flavor_get_all(context, inactive=False, filters=None,
                                            sort_dir=sort_dir)
 
     inst_types = query.all()
-
-    return [_dict_with_extra_specs(i) for i in inst_types]
+    flavor_api_list=flavor_get_all_api(context, inactive, filters,
+                   sort_key, sort_dir, limit, marker)
+    return [_dict_with_extra_specs(i) for i in inst_types]+flavor_api_list
 
 
 def _flavor_get_id_from_flavor_query(context, flavor_id, session=None):
