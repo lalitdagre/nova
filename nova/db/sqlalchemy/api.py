@@ -4689,8 +4689,7 @@ def _dict_with_extra_specs(inst_type_query):
 
 
 def _flavor_get_query_api(context, session=None, read_deleted=None):
-    query = model_query(context, api_models.Flavors, session=session,
-                       read_deleted=read_deleted).\
+    query = model_query(context, api_models.Flavors, session=session).\
                        options(joinedload('extra_specs'))
     if not context.is_admin:
         the_filter = [api_models.Flavors.is_public == true()]
@@ -4747,7 +4746,7 @@ def flavor_get_all_api(context, inactive=False, filters=None,
         if filters['is_public'] and context.project_id is not None:
             the_filter.extend([
                 api_models.Flavors.projects.any(
-                    project_id=context.project_id, deleted=0)
+                    project_id=context.project_id)
             ])
         if len(the_filter) > 1:
             query = query.filter(or_(*the_filter))
