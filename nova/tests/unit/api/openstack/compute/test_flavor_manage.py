@@ -360,7 +360,7 @@ class FlavorManageTestV21(test.NoDBTestCase):
                           "test_memory_mb", 2, None, 1, 1234, 512, 1, True)
 
 
-class PrivateFlavorManageTestV21(test.TestCase):
+class PrivateFlavorManageTestV21(test.BothDBTestCase):
     controller = flavormanage_v21.FlavorManageController()
     base_url = '/v2/fake/flavors'
 

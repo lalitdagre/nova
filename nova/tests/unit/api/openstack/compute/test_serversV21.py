@@ -1979,7 +1979,7 @@ class ServerStatusTest(test.TestCase):
         self.assertEqual(response['server']['status'], 'SHUTOFF')
 
 
-class ServersControllerCreateTest(test.TestCase):
+class ServersControllerCreateTest(test.BothDBTestCase):
     image_uuid = '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6'
     flavor_ref = 'http://localhost/123/flavors/3'
 

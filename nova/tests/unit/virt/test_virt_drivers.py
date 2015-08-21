@@ -795,13 +795,13 @@ class _VirtDriverTestCase(_FakeDriverBackendTestCase):
             instance, [], mock.Mock(spec=objects.BlockDeviceMapping))
 
 
-class AbstractDriverTestCase(_VirtDriverTestCase, test.TestCase):
+class AbstractDriverTestCase(_VirtDriverTestCase, test.BothDBTestCase):
     def setUp(self):
         self.driver_module = "nova.virt.driver.ComputeDriver"
         super(AbstractDriverTestCase, self).setUp()
 
 
-class FakeConnectionTestCase(_VirtDriverTestCase, test.TestCase):
+class FakeConnectionTestCase(_VirtDriverTestCase, test.BothDBTestCase):
     def setUp(self):
         self.driver_module = 'nova.virt.fake.FakeDriver'
         fake.set_nodes(['myhostname'])
@@ -821,7 +821,7 @@ class FakeConnectionTestCase(_VirtDriverTestCase, test.TestCase):
         self.assertTrue(any(hypervisor_type in x for x in supported_instances))
 
 
-class LibvirtConnTestCase(_VirtDriverTestCase, test.TestCase):
+class LibvirtConnTestCase(_VirtDriverTestCase, test.BothDBTestCase):
 
     REQUIRES_LOCKING = True
 

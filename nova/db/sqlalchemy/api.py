@@ -61,7 +61,6 @@ from nova import block_device
 from nova.compute import task_states
 from nova.compute import vm_states
 import nova.context
-from nova.db.sqlalchemy import api_models
 from nova.db.sqlalchemy import models
 from nova import exception
 from nova.i18n import _, _LI, _LE, _LW
@@ -4608,22 +4607,6 @@ def console_get(context, console_id, instance_uuid=None):
 ##################
 
 
-def _flavor_by_name_exist(context, f_name):
-    try:
-        flavor_get_by_name(context, f_name)
-        return True
-    except exception.FlavorNotFoundByName:
-        return False
-
-
-def _flavor_by_flavor_id_exist(context, f_id):
-    try:
-        flavor_get(context, f_id)
-        return True
-    except exception.FlavorNotFound:
-        return False
-
-
 def flavor_create(context, values, projects=None):
     """Create a new instance type. In order to pass in extra specs,
     the values dict should contain a 'extra_specs' key/value pair:
@@ -4631,29 +4614,26 @@ def flavor_create(context, values, projects=None):
     {'extra_specs' : {'k1': 'v1', 'k2': 'v2', ...}}
 
     """
-    if (_flavor_by_flavor_id_exist(context, values['flavorid'])):
-        raise exception.FlavorIdExists(flavor_id=values['flavorid'])
-    if (_flavor_by_name_exist(context, values['name'])):
-        raise exception.FlavorExists(name=values['name'])
     specs = values.get('extra_specs')
     specs_refs = []
     if specs:
         for k, v in specs.items():
-            specs_ref = api_models.FlavorExtraSpecs()
+            specs_ref = models.InstanceTypeExtraSpecs()
             specs_ref['key'] = k
             specs_ref['value'] = v
             specs_refs.append(specs_ref)
 
     values['extra_specs'] = specs_refs
-    flavor_ref = api_models.Flavors()
-    flavor_ref.update(values)
+    instance_type_ref = models.InstanceTypes()
+    instance_type_ref.update(values)
+
     if projects is None:
         projects = []
 
-    session = get_api_session()
+    session = get_session()
     with session.begin():
         try:
-            flavor_ref.save(session)
+            instance_type_ref.save()
         except db_exc.DBDuplicateEntry as e:
             if 'flavorid' in e.columns:
                 raise exception.FlavorIdExists(flavor_id=values['flavorid'])
@@ -4661,12 +4641,12 @@ def flavor_create(context, values, projects=None):
         except Exception as e:
             raise db_exc.DBError(e)
         for project in set(projects):
-            access_ref = api_models.FlavorProjects()
-            access_ref.update({"flavor_id": flavor_ref.id,
+            access_ref = models.InstanceTypeProjects()
+            access_ref.update({"instance_type_id": instance_type_ref.id,
                                "project_id": project})
-            access_ref.save(session)
+            access_ref.save()
 
-    return _dict_with_extra_specs(flavor_ref)
+    return _dict_with_extra_specs(instance_type_ref)
 
 
 def _dict_with_extra_specs(inst_type_query):
@@ -4688,18 +4668,6 @@ def _dict_with_extra_specs(inst_type_query):
     return inst_type_dict
 
 
-def _flavor_get_query_api(context, session=None, read_deleted=None):
-    query = model_query(context, api_models.Flavors, session=session).\
-                       options(joinedload('extra_specs'))
-    if not context.is_admin:
-        the_filter = [api_models.Flavors.is_public == true()]
-        the_filter.extend([
-            api_models.Flavors.projects.any(project_id=context.project_id)
-        ])
-        query = query.filter(or_(*the_filter))
-    return query
-
-
 def _flavor_get_query(context, session=None, read_deleted=None):
     query = model_query(context, models.InstanceTypes, session=session,
                        read_deleted=read_deleted).\
@@ -4711,64 +4679,6 @@ def _flavor_get_query(context, session=None, read_deleted=None):
         ])
         query = query.filter(or_(*the_filter))
     return query
-
-
-@require_context
-def flavor_get_all_api(context, inactive=False, filters=None,
-                   sort_key='flavorid', sort_dir='asc', limit=None,
-                   marker=None):
-    """Returns all flavors.
-    """
-    filters = filters or {}
-
-    # FIXME(sirp): now that we have the `disabled` field for flavors, we
-    # should probably remove the use of `deleted` to mark inactive. `deleted`
-    # should mean truly deleted, e.g. we can safely purge the record out of the
-    # database.
-    read_deleted = "yes" if inactive else "no"
-    session = get_api_session()
-    query = _flavor_get_query_api(context, session, read_deleted=read_deleted)
-
-    if 'min_memory_mb' in filters:
-        query = query.filter(
-                api_models.Flavors.memory_mb >= filters['min_memory_mb'])
-
-    if 'min_root_gb' in filters:
-        query = query.filter(
-                api_models.Flavors.root_gb >= filters['min_root_gb'])
-
-    if 'disabled' in filters:
-        query = query.filter(
-                api_models.Flavors.disabled == filters['disabled'])
-
-    if 'is_public' in filters and filters['is_public'] is not None:
-        the_filter = [api_models.Flavors.is_public == filters['is_public']]
-        if filters['is_public'] and context.project_id is not None:
-            the_filter.extend([
-                api_models.Flavors.projects.any(
-                    project_id=context.project_id)
-            ])
-        if len(the_filter) > 1:
-            query = query.filter(or_(*the_filter))
-        else:
-            query = query.filter(the_filter[0])
-
-    marker_row = None
-    if marker is not None:
-        marker_row = _flavor_get_query(context, read_deleted=read_deleted).\
-                    filter_by(flavorid=marker).\
-                    first()
-        if not marker_row:
-            raise exception.MarkerNotFound(marker)
-
-    query = sqlalchemyutils.paginate_query(query, api_models.Flavors, limit,
-                                           [sort_key, 'id'],
-                                           marker=marker_row,
-                                           sort_dir=sort_dir)
-
-    inst_types = query.all()
-
-    return [_dict_with_extra_specs(i) for i in inst_types]
 
 
 @require_context
@@ -4825,9 +4735,8 @@ def flavor_get_all(context, inactive=False, filters=None,
                                            sort_dir=sort_dir)
 
     inst_types = query.all()
-    flavor_api_list=flavor_get_all_api(context, inactive, filters,
-                   sort_key, sort_dir, limit, marker)
-    return [_dict_with_extra_specs(i) for i in inst_types]+flavor_api_list
+
+    return [_dict_with_extra_specs(i) for i in inst_types]
 
 
 def _flavor_get_id_from_flavor_query(context, flavor_id, session=None):

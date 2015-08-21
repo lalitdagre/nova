@@ -576,7 +576,7 @@ class FlavorsTestV20(FlavorsTestV21):
         pass
 
 
-class DisabledFlavorsWithRealDBTestV21(test.TestCase):
+class DisabledFlavorsWithRealDBTestV21(test.BothDBTestCase):
     """Tests that disabled flavors should not be shown nor listed."""
     Controller = flavors_v21.FlavorsController
     _prefix = "/v3"

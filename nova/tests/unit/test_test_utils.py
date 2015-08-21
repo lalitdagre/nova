@@ -23,7 +23,7 @@ from nova import test
 from nova.tests.unit import utils as test_utils
 
 
-class TestUtilsTestCase(test.TestCase):
+class TestUtilsTestCase(test.BothDBTestCase):
     def test_get_test_admin_context(self):
         # get_test_admin_context's return value behaves like admin context.
         ctxt = test_utils.get_test_admin_context()

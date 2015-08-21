@@ -21,7 +21,7 @@ from nova import exception
 from nova import test
 
 
-class InstanceTypeExtraSpecsTestCase(test.TestCase):
+class InstanceTypeExtraSpecsTestCase(test.BothDBTestCase):
 
     def setUp(self):
         super(InstanceTypeExtraSpecsTestCase, self).setUp()

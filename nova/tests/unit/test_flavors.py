@@ -65,7 +65,7 @@ DEFAULT_FLAVOR_OBJS = [
 ]
 
 
-class InstanceTypeTestCase(test.TestCase):
+class InstanceTypeTestCase(test.BothDBTestCase):
     """Test cases for flavor  code."""
     def _generate_name(self):
         """return a name not in the DB."""
@@ -384,7 +384,7 @@ class InstanceTypeFilteringTest(test.TestCase):
         self.assertFilterResults(filters, expected)
 
 
-class CreateInstanceTypeTest(test.TestCase):
+class CreateInstanceTypeTest(test.BothDBTestCase):
 
     def assertInvalidInput(self, *create_args, **create_kwargs):
         self.assertRaises(exception.InvalidInput, flavors.create,
