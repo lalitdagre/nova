@@ -17,6 +17,8 @@ from nova import exception
 from nova import objects
 from nova.objects import base
 from nova.objects import fields
+#import operator
+from operator import itemgetter
 
 from oslo_db.sqlalchemy import utils as sqlalchemyutils
 from sqlalchemy import or_
@@ -257,10 +259,10 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
                 expected_attrs.append(attr)
         projects = updates.pop('projects', [])
 
-        if (self._flavor_by_flavor_id_exist_in_db(updates.get('flavorid'))):
-            raise exception.FlavorIdExists(flavor_id=updates.get('flavorid'))
-        if (self._flavor_by_name_exist_in_db(updates.get('name'))):
-            raise exception.FlavorExists(name=updates.get('name'))
+        #if (self._flavor_by_flavor_id_exist_in_db(updates.get('flavorid'))):
+        #    raise exception.FlavorIdExists(flavor_id=updates.get('flavorid'))
+        #if (self._flavor_by_name_exist_in_db(updates.get('name'))):
+        #    raise exception.FlavorExists(name=updates.get('name'))
 
         db_flavor = self._api_flavor_create(self._context, updates, projects)
         self._from_db_object(self._context, self, db_flavor,
@@ -403,7 +405,11 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         try:
             self._flavor_destroy_from_db(self._context, self.name)
         except exception.FlavorNotFoundByName:
+            pass
+        try:
             db.flavor_destroy(self._context, self.name)
+        except exception.FlavorNotFoundByName:
+            pass
 
 
 @base.NovaObjectRegistry.register
@@ -484,8 +490,39 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
                                            marker=marker_row,
                                            sort_dir=sort_dir)
         flavors = query.all()
-        n_flavors = db.flavor_get_all(context, inactive=inactive,
+        nova_flavors = db.flavor_get_all(context, inactive=inactive,
                                        filters=filters, sort_key=sort_key,
                                        sort_dir=sort_dir, limit=limit,
                                        marker=marker)
-        return [db_api._dict_with_extra_specs(i) for i in flavors] + n_flavors
+        
+        api_flavors=[db_api._dict_with_extra_specs(i) for i in flavors]
+         
+        flavor_union=cls._flavor_union_list(api_flavors, nova_flavors)
+        flavor_union=cls._sort_flavor_list(flavor_union)
+        return cls._limit_flavor_list(flavor_union,limit)
+
+    @classmethod
+    def _sort_flavor_list(cls, dictlist):
+        return sorted(dictlist, key=itemgetter('flavorid')) 
+
+    @classmethod
+    def _limit_flavor_list(cls, flavorlist, limit):
+	return flavorlist[:limit]
+
+    @classmethod
+    def _key_in_dictlist(cls, key, value, dictlist):
+        for temp in dictlist:
+            if temp[key] == value:
+                return temp
+        return {}
+
+    @classmethod 
+    def _flavor_union_list(cls, flavor_list1, flavor_list2):
+        temp_list=[]
+        for d in flavor_list1:
+            if cls._key_in_dictlist('flavorid', d['flavorid'], flavor_list2) == {}:
+                temp_list.append(d)
+        print temp_list
+        return temp_list+flavor_list2
+                
+

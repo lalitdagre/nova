@@ -254,6 +254,11 @@ class TestCase(testtools.TestCase):
 
         self.useFixture(nova_fixtures.PoisonFunctions())
 
+        # NOTE(lalitdagre): CellsV2 moves some nova tables to a separate 
+        # API DB. This ensures existing tests can access tables moved to
+        # API DB.
+        self.useFixture(nova_fixtures.Database(database='api')) 
+
     def _restore_obj_registry(self):
         objects_base.NovaObjectRegistry._registry._obj_classes = \
                 self._base_test_obj_backup
