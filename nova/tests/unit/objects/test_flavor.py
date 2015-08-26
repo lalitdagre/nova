@@ -89,11 +89,9 @@ class _TestFlavor(object):
         flavor = flavor_obj.Flavor(context=self.context)
         flavor.name = 'm1.foo'
         flavor.extra_specs = fake_flavor['extra_specs']
-
-        with mock.patch.object(db, 'flavor_create') as create:
+        with mock.patch.object(flavor, '_flavor_create_in_db') as create:
             create.return_value = fake_flavor
             flavor.create()
-
         self.assertEqual(self.context, flavor._context)
         # NOTE(danms): Orphan this to avoid lazy-loads
         flavor._context = None

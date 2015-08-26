@@ -17,7 +17,6 @@ from nova import exception
 from nova import objects
 from nova.objects import base
 from nova.objects import fields
-#import operator
 from operator import itemgetter
 
 from oslo_db.sqlalchemy import utils as sqlalchemyutils
@@ -44,6 +43,32 @@ def _flavor_get_query_db(context, session=None, read_deleted=None):
         ])
         query = query.filter(or_(*the_filter))
     return query
+
+
+def _sort_flavor_list(dictlist):
+    """
+    _sort_flavor_list takes list containing dictionary and returns the sorted list
+    which is sorted by flavorid
+    """
+    return sorted(dictlist, key=itemgetter('flavorid'))
+
+
+def _limit_flavor_list(flavorlist, limit):
+    """
+    _limit_flavor_list takes flavor list and limit count. It returns the flavors
+    till the limit as upperlimit of flavor list.
+    """
+    return flavorlist[:limit]
+
+
+def _flavor_union_list(flavor_list1, flavor_list2):
+    """
+    _flavor_union_list takes two lists containing dictionary. It returns
+    union of input lists by key as flavorid
+    """
+    flavor_list1_ids = [x["flavorid"] for x in flavor_list1]
+    return flavor_list1 + [x for x in flavor_list2 if x["flavorid"]
+                                           not in flavor_list1_ids]
 
 
 # TODO(berrange): Remove NovaObjectDictCompat
@@ -259,16 +284,16 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
                 expected_attrs.append(attr)
         projects = updates.pop('projects', [])
 
-        #if (self._flavor_by_flavor_id_exist_in_db(updates.get('flavorid'))):
-        #    raise exception.FlavorIdExists(flavor_id=updates.get('flavorid'))
-        #if (self._flavor_by_name_exist_in_db(updates.get('name'))):
-        #    raise exception.FlavorExists(name=updates.get('name'))
+        if (self._flavor_by_flavor_id_exist_in_db(updates.get('flavorid'))):
+            raise exception.FlavorIdExists(flavor_id=updates.get('flavorid'))
+        if (self._flavor_by_name_exist_in_db(updates.get('name'))):
+            raise exception.FlavorExists(name=updates.get('name'))
 
-        db_flavor = self._api_flavor_create(self._context, updates, projects)
+        db_flavor = self._flavor_create_in_db(self._context, updates, projects)
         self._from_db_object(self._context, self, db_flavor,
                              expected_attrs=expected_attrs)
 
-    def _api_flavor_create(self, context, values, projects=None):
+    def _flavor_create_in_db(self, context, values, projects=None):
         """Create a new instance type. In order to pass in extra specs,
         the values dict should contain a 'extra_specs' key/value pair:
 
@@ -431,6 +456,8 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
                                        filters=filters, sort_key=sort_key,
                                        sort_dir=sort_dir, limit=limit,
                                        marker=marker)
+        cc=base.obj_make_list(context, cls(context), objects.Flavor,db_flavors, expected_attrs=['extra_specs'])
+	print "GET ALL : ", cc 
         return base.obj_make_list(context, cls(context), objects.Flavor,
                                   db_flavors, expected_attrs=['extra_specs'])
 
@@ -494,35 +521,7 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
                                        filters=filters, sort_key=sort_key,
                                        sort_dir=sort_dir, limit=limit,
                                        marker=marker)
-        
-        api_flavors=[db_api._dict_with_extra_specs(i) for i in flavors]
-         
-        flavor_union=cls._flavor_union_list(api_flavors, nova_flavors)
-        flavor_union=cls._sort_flavor_list(flavor_union)
-        return cls._limit_flavor_list(flavor_union,limit)
-
-    @classmethod
-    def _sort_flavor_list(cls, dictlist):
-        return sorted(dictlist, key=itemgetter('flavorid')) 
-
-    @classmethod
-    def _limit_flavor_list(cls, flavorlist, limit):
-	return flavorlist[:limit]
-
-    @classmethod
-    def _key_in_dictlist(cls, key, value, dictlist):
-        for temp in dictlist:
-            if temp[key] == value:
-                return temp
-        return {}
-
-    @classmethod 
-    def _flavor_union_list(cls, flavor_list1, flavor_list2):
-        temp_list=[]
-        for d in flavor_list1:
-            if cls._key_in_dictlist('flavorid', d['flavorid'], flavor_list2) == {}:
-                temp_list.append(d)
-        print temp_list
-        return temp_list+flavor_list2
-                
-
+        api_flavors = [db_api._dict_with_extra_specs(i) for i in flavors]
+        flavor_union = _flavor_union_list(api_flavors, nova_flavors)
+        flavor_union = _sort_flavor_list(flavor_union)
+        return _limit_flavor_list(flavor_union, limit)

@@ -528,7 +528,7 @@ class CreateInstanceTypeTest(test.TestCase):
 
     def test_basic_create(self):
         # Ensure instance types can be created.
-        original_list = flavors.get_all_flavors()
+        original_list = flavors.get_all_flavors(key="flavorid")
 
         # Create new type and make sure values stick
         flavor = flavors.create('flavor', 64, 1, 120)
@@ -538,7 +538,9 @@ class CreateInstanceTypeTest(test.TestCase):
         self.assertEqual(flavor.root_gb, 120)
 
         # Ensure new type shows up in list
-        new_list = flavors.get_all_flavors()
+        new_list = flavors.get_all_flavors(key="flavorid")
+        print "----------",original_list,len(original_list)
+        print "----------",new_list,len(new_list)
         self.assertNotEqual(len(original_list), len(new_list),
                             'flavor was not created')
 
