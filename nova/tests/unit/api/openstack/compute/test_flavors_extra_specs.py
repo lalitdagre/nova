@@ -25,7 +25,7 @@ from nova import exception
 from nova import test
 from nova.tests.unit.api.openstack import fakes
 from nova.tests.unit.objects import test_flavor
-
+from nova.objects import flavor as flavor_obj
 
 def return_create_flavor_extra_specs(context, flavor_id, extra_specs):
     return stub_flavor_extra_specs()
@@ -83,7 +83,7 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         self.assertEqual('value1', res_dict['extra_specs']['key1'])
 
     def test_index_no_data(self):
-        self.stubs.Set(nova.db, 'flavor_extra_specs_get',
+        self.stubs.Set(flavor_obj, '_flavor_extra_specs_get_db',
                        return_empty_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs')
@@ -102,7 +102,7 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         self.assertEqual('value5', res_dict['key5'])
 
     def test_show_spec_not_found(self):
-        self.stubs.Set(nova.db, 'flavor_extra_specs_get',
+        self.stubs.Set(flavor_obj, '_flavor_extra_specs_get_db',
                        return_empty_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs/key6')
@@ -130,7 +130,7 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
     def test_delete(self):
         flavor = dict(test_flavor.fake_flavor,
                       extra_specs={'key5': 'value5'})
-        self.stubs.Set(nova.db, 'flavor_extra_specs_delete',
+        self.stubs.Set(flavor_obj, '_flavor_extra_specs_delete_db',
                        delete_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs/key5',
@@ -140,7 +140,7 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
             self.controller.delete(req, 1, 'key5')
 
     def test_delete_no_admin(self):
-        self.stubs.Set(nova.db, 'flavor_extra_specs_delete',
+        self.stubs.Set(flavor_obj, '_flavor_extra_specs_delete_db',
                        delete_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs/key5')
@@ -154,8 +154,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
                           req, 1, 'key6')
 
     def test_create(self):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
         body = {"extra_specs": {"key1": "value1", "key2": 0.5, "key3": 5}}
 
@@ -167,8 +167,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         self.assertEqual(5, res_dict['extra_specs']['key3'])
 
     def test_create_no_admin(self):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
         body = {"extra_specs": {"key1": "value1"}}
 
@@ -180,8 +180,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         def fake_instance_type_extra_specs_update_or_create(*args, **kwargs):
             raise exception.FlavorNotFound(flavor_id='')
 
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        fake_instance_type_extra_specs_update_or_create)
         body = {"extra_specs": {"key1": "value1"}}
         req = self._get_request('1/os-extra_specs', use_admin_context=True)
@@ -192,8 +192,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         def fake_instance_type_extra_specs_update_or_create(*args, **kwargs):
             raise exception.FlavorExtraSpecUpdateCreateFailed(id=1, retries=5)
 
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        fake_instance_type_extra_specs_update_or_create)
         body = {"extra_specs": {"key1": "value1"}}
         req = self._get_request('1/os-extra_specs', use_admin_context=True)
@@ -201,8 +201,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
                           req, 1, body=body)
 
     def _test_create_bad_request(self, body):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs', use_admin_context=True)
@@ -264,8 +264,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
             self.assertEqual('value1', res_dict['extra_specs'][key])
 
     def test_update_item(self):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
         body = {"key1": "value1"}
 
@@ -276,8 +276,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         self.assertEqual('value1', res_dict['key1'])
 
     def test_update_item_no_admin(self):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
         body = {"key1": "value1"}
 
@@ -286,8 +286,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
                           req, 1, 'key1', body=body)
 
     def _test_update_item_bad_request(self, body):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs/key1',
@@ -323,8 +323,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         self._test_update_item_bad_request({"key1": value})
 
     def test_update_item_body_uri_mismatch(self):
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
         body = {"key1": "value1"}
 
@@ -336,8 +336,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         def fake_instance_type_extra_specs_update_or_create(*args, **kwargs):
             raise exception.FlavorNotFound(flavor_id='')
 
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        fake_instance_type_extra_specs_update_or_create)
         body = {"key1": "value1"}
 
@@ -350,8 +350,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
         def fake_instance_type_extra_specs_update_or_create(*args, **kwargs):
             raise exception.FlavorExtraSpecUpdateCreateFailed(id=1, retries=5)
 
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        fake_instance_type_extra_specs_update_or_create)
         body = {"key1": "value1"}
 
@@ -362,8 +362,8 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
 
     def test_update_really_long_integer_value(self):
         value = 10 ** 1000
-        self.stubs.Set(nova.db,
-                       'flavor_extra_specs_update_or_create',
+        self.stubs.Set(flavor_obj,
+                       '_flavor_extra_specs_update_or_create_db',
                        return_create_flavor_extra_specs)
 
         req = self._get_request('1/os-extra_specs/key1',

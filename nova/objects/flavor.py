@@ -258,6 +258,141 @@ def _flavor_by_flavor_id_exist_in_db(context, f_id):
     except exception.FlavorNotFound:
         return False
 
+def _flavor_get_all_db( context, inactive=False, filters=None,
+                      sort_key='flavorid', sort_dir='asc', limit=None,
+                      marker=None):
+    """Returns all flavors.
+    """
+    filters = filters or {}
+
+    # FIXME(sirp): now that we have the `disabled` field for flavors, we
+    # should probably remove the use of `deleted` to mark inactive.
+    # `deleted` should mean truly deleted, e.g. we can safely purge
+    # the record out of the database.
+
+    read_deleted = "yes" if inactive else "no"
+    session = db_api.get_api_session()
+    query = _flavor_get_query_db(context, session,
+                                 read_deleted=read_deleted)
+
+    if 'min_memory_mb' in filters:
+        query = query.filter(
+                api_models.Flavors.memory_mb >= filters['min_memory_mb'])
+
+    if 'min_root_gb' in filters:
+        query = query.filter(
+                api_models.Flavors.root_gb >= filters['min_root_gb'])
+
+    if 'disabled' in filters:
+        query = query.filter(
+               api_models.Flavors.disabled == filters['disabled'])
+
+    if 'is_public' in filters and filters['is_public'] is not None:
+        the_filter = [api_models.Flavors.is_public == filters['is_public']]
+        if filters['is_public'] and context.project_id is not None:
+            the_filter.extend([
+                api_models.Flavors.projects.any(
+                   project_id=context.project_id, deleted=0)
+            ])
+        if len(the_filter) > 1:
+            query = query.filter(or_(*the_filter))
+        else:
+            query = query.filter(the_filter[0])
+    marker_row = None
+    if marker is not None:
+        marker_row = _flavor_get_query_db(context, session, read_deleted=read_deleted).\
+                    filter_by(flavorid=marker).\
+                    first()
+        if not marker_row:
+            pass
+
+    query = sqlalchemyutils.paginate_query(query, api_models.Flavors,
+                                       limit,
+                                       [sort_key, 'id'],
+                                       marker=marker_row,
+                                       sort_dir=sort_dir)
+    flavors = query.all()
+    nova_flavors = db.flavor_get_all(context, inactive=inactive,
+                                   filters=filters, sort_key=sort_key,
+                                   sort_dir=sort_dir, limit=limit,
+                                   marker=None)
+    api_flavors = [db_api._dict_with_extra_specs(i) for i in flavors]
+    flavor_union = _flavor_union_list(api_flavors, nova_flavors)
+    flavor_union = _sort_flavor_list(flavor_union, sort_key)
+    return _limit_flavor_list(flavor_union, limit)
+
+
+def _flavor_destroy_db(context, name):
+    """Marks specific flavor as deleted."""
+    session = db_api.get_api_session()
+    with session.begin():
+        ref = db_api.model_query(context, api_models.Flavors,
+                          session=session,
+                          read_deleted="no").\
+                    filter_by(name=name).\
+                    first()
+        if not ref:
+            raise exception.FlavorNotFoundByName(flavor_name=name)
+
+        ref.soft_delete(session=session)
+        db_api.model_query(context, api_models.FlavorExtraSpecs,
+                    session=session, read_deleted="no").\
+                    filter_by(flavor_id=ref['id']).\
+                    soft_delete()
+        db_api.model_query(context, api_models.FlavorProjects,
+                    session=session, read_deleted="no").\
+                    filter_by(flavor_id=ref['id']).\
+                    soft_delete()
+
+def _flavor_get_by_flavor_id_db(context, flavor_id,
+                                         read_deleted):
+    """Returns a dict describing specific flavor_id."""
+    session = db_api.get_api_session()
+    result = _flavor_get_query_db(context, session,
+                        read_deleted=read_deleted).\
+                        filter_by(flavorid=flavor_id).\
+                        order_by(asc("deleted"), asc("id")).\
+                        first()
+    if not result:
+        raise exception.FlavorNotFound(flavor_id=flavor_id)
+    return db_api._dict_with_extra_specs(result)
+
+
+def _flavor_get_by_name_db( context, name):
+    """Returns a dict describing specific flavor."""
+    session = db_api.get_api_session()
+    result = _flavor_get_query_db(context, session).\
+                        filter_by(name=name).\
+                        first()
+    if not result:
+        raise exception.FlavorNotFoundByName(flavor_name=name)
+    return db_api._dict_with_extra_specs(result)
+
+
+def _flavor_get_by_id_db(context, id):
+    """Returns a dict describing specific flavor."""
+    session = db_api.get_api_session()
+    result = _flavor_get_query_db(context, session).\
+                        filter_by(id=id).\
+                        first()
+    if not result:
+        raise exception.FlavorNotFound(flavor_id=id)
+    return db_api._dict_with_extra_specs(result)
+
+def _flavor_extra_specs_get_db(context, flavor_id):
+    session = db_api.get_api_session()
+    rows = _flavor_extra_specs_get_query_db(context, flavor_id, session).all()
+    return {row['key']: row['value'] for row in rows}
+
+def _flavor_get_db(context, id):
+    """Returns a dict describing specific flavor."""
+    session = db_api.get_api_session()
+    result = _flavor_get_query_db(context, session).\
+                        filter_by(id=id).\
+                        first()
+    if not result:
+        raise exception.FlavorNotFound(flavor_id=id)
+    return db_api._dict_with_extra_specs(result)
 
 # TODO(berrange): Remove NovaObjectDictCompat
 @base.NovaObjectRegistry.register
@@ -365,64 +500,29 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
                                    else [])
         return self
 
-    @classmethod
-    def _flavor_get_by_id_from_db(cls, context, id):
-        """Returns a dict describing specific flavor."""
-        session = db_api.get_api_session()
-        result = _flavor_get_query_db(context, session).\
-                            filter_by(id=id).\
-                            first()
-        if not result:
-            raise exception.FlavorNotFound(flavor_id=id)
-        return db_api._dict_with_extra_specs(result)
-
     @base.remotable_classmethod
     def get_by_id(cls, context, id):
         try:
-            db_flavor = cls._flavor_get_by_id_from_db(context, id)
+            db_flavor = _flavor_get_db(context, id)
         except exception.FlavorNotFound:
             db_flavor = db.flavor_get(context, id)
         return cls._from_db_object(context, cls(context), db_flavor,
                                    expected_attrs=['extra_specs'])
 
-    @classmethod
-    def _flavor_get_by_name_from_db(cls, context, name):
-        """Returns a dict describing specific flavor."""
-        session = db_api.get_api_session()
-        result = _flavor_get_query_db(context, session).\
-                            filter_by(name=name).\
-                            first()
-        if not result:
-            raise exception.FlavorNotFoundByName(flavor_name=name)
-        return db_api._dict_with_extra_specs(result)
-
     @base.remotable_classmethod
     def get_by_name(cls, context, name):
         try:
-            db_flavor = cls._flavor_get_by_name_from_db(context, name)
+            db_flavor = _flavor_get_by_name_db(context, name)
         except exception.FlavorNotFoundByName:
             db_flavor = db.flavor_get_by_name(context, name)
         return cls._from_db_object(context, cls(context), db_flavor,
                                    expected_attrs=['extra_specs'])
 
-    @classmethod
-    def _flavor_get_by_flavor_id_from_db(cls, context, flavor_id,
-                                         read_deleted):
-        """Returns a dict describing specific flavor_id."""
-        session = db_api.get_api_session()
-        result = _flavor_get_query_db(context, session,
-                            read_deleted=read_deleted).\
-                            filter_by(flavorid=flavor_id).\
-                            order_by(asc("deleted"), asc("id")).\
-                            first()
-        if not result:
-            raise exception.FlavorNotFound(flavor_id=flavor_id)
-        return db_api._dict_with_extra_specs(result)
-
+    
     @base.remotable_classmethod
     def get_by_flavor_id(cls, context, flavor_id, read_deleted=None):
         try:
-            db_flavor = cls._flavor_get_by_flavor_id_from_db(context,
+            db_flavor = _flavor_get_by_flavor_id_db(context,
                                                     flavor_id, read_deleted)
         except exception.FlavorNotFound:
             db_flavor = db.flavor_get_by_flavor_id(context, flavor_id,
@@ -436,7 +536,7 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         if 'projects' in self.obj_what_changed():
             raise exception.ObjectActionError(action='add_access',
                                               reason='projects modified')
-        db.flavor_access_add(self._context, self.flavorid, project_id)
+        _flavor_access_add_db(self._context, self.flavorid, project_id)
         self._load_projects()
 
     @base.remotable
@@ -444,7 +544,7 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         if 'projects' in self.obj_what_changed():
             raise exception.ObjectActionError(action='remove_access',
                                               reason='projects modified')
-        db.flavor_access_remove(self._context, self.flavorid, project_id)
+        _flavor_access_remove_db(self._context, self.flavorid, project_id)
         self._load_projects()
 
     @base.remotable
@@ -538,32 +638,10 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         if added_projects or deleted_projects:
             self.save_projects(added_projects, deleted_projects)
 
-    def _flavor_destroy_from_db(self, context, name):
-        """Marks specific flavor as deleted."""
-        session = db_api.get_api_session()
-        with session.begin():
-            ref = db_api.model_query(context, api_models.Flavors,
-                              session=session,
-                              read_deleted="no").\
-                        filter_by(name=name).\
-                        first()
-            if not ref:
-                raise exception.FlavorNotFoundByName(flavor_name=name)
-
-            ref.soft_delete(session=session)
-            db_api.model_query(context, api_models.FlavorExtraSpecs,
-                        session=session, read_deleted="no").\
-                        filter_by(flavor_id=ref['id']).\
-                        soft_delete()
-            db_api.model_query(context, api_models.FlavorProjects,
-                        session=session, read_deleted="no").\
-                        filter_by(flavor_id=ref['id']).\
-                        soft_delete()
-
     @base.remotable
     def destroy(self):
         try:
-            self._flavor_destroy_from_db(self._context, self.name)
+            _flavor_destroy_db(self._context, self.name)
             try:
                 db.flavor_destroy(self._context, self.name)
             except Exception:
@@ -589,74 +667,9 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
     @base.remotable_classmethod
     def get_all(cls, context, inactive=False, filters=None,
                 sort_key='flavorid', sort_dir='asc', limit=None, marker=None):
-        db_flavors = cls._flavor_get_all_from_db(context, inactive=inactive,
+        db_flavors = _flavor_get_all_db(context, inactive=inactive,
                                        filters=filters, sort_key=sort_key,
                                        sort_dir=sort_dir, limit=limit,
                                        marker=marker)
         return base.obj_make_list(context, cls(context), objects.Flavor,
                                   db_flavors, expected_attrs=['extra_specs'])
-
-    @classmethod
-    def _flavor_get_all_from_db(cls, context, inactive=False, filters=None,
-                          sort_key='flavorid', sort_dir='asc', limit=None,
-                          marker=None):
-        """Returns all flavors.
-        """
-        filters = filters or {}
-
-        # FIXME(sirp): now that we have the `disabled` field for flavors, we
-        # should probably remove the use of `deleted` to mark inactive.
-        # `deleted` should mean truly deleted, e.g. we can safely purge
-        # the record out of the database.
-
-        read_deleted = "yes" if inactive else "no"
-        session = db_api.get_api_session()
-        query = _flavor_get_query_db(context, session,
-                                     read_deleted=read_deleted)
-
-        if 'min_memory_mb' in filters:
-            query = query.filter(
-                    api_models.Flavors.memory_mb >= filters['min_memory_mb'])
-
-        if 'min_root_gb' in filters:
-            query = query.filter(
-                    api_models.Flavors.root_gb >= filters['min_root_gb'])
-
-        if 'disabled' in filters:
-            query = query.filter(
-                   api_models.Flavors.disabled == filters['disabled'])
-
-        if 'is_public' in filters and filters['is_public'] is not None:
-            the_filter = [api_models.Flavors.is_public == filters['is_public']]
-            if filters['is_public'] and context.project_id is not None:
-                the_filter.extend([
-                    api_models.Flavors.projects.any(
-                       project_id=context.project_id, deleted=0)
-                ])
-            if len(the_filter) > 1:
-                query = query.filter(or_(*the_filter))
-            else:
-                query = query.filter(the_filter[0])
-
-        marker_row = None
-        if marker is not None:
-            marker_row = _flavor_get_query_db(context, session, read_deleted=read_deleted).\
-                        filter_by(flavorid=marker).\
-                        first()
-            if not marker_row:
-                pass
-
-        query = sqlalchemyutils.paginate_query(query, api_models.Flavors,
-                                           limit,
-                                           [sort_key, 'id'],
-                                           marker=marker_row,
-                                           sort_dir=sort_dir)
-        flavors = query.all()
-        nova_flavors = db.flavor_get_all(context, inactive=inactive,
-                                       filters=filters, sort_key=sort_key,
-                                       sort_dir=sort_dir, limit=limit,
-                                       marker=None)
-        api_flavors = [db_api._dict_with_extra_specs(i) for i in flavors]
-        flavor_union = _flavor_union_list(api_flavors, nova_flavors)
-        flavor_union = _sort_flavor_list(flavor_union, sort_key)
-        return _limit_flavor_list(flavor_union, limit)

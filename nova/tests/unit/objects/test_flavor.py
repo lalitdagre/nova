@@ -48,19 +48,19 @@ class _TestFlavor(object):
             test.assertEqual(db[field], obj[field])
 
     def test_get_by_id(self):
-        with mock.patch.object(db, 'flavor_get') as get:
+        with mock.patch.object(flavor_obj, '_flavor_get_db') as get:
             get.return_value = fake_flavor
             flavor = flavor_obj.Flavor.get_by_id(self.context, 1)
             self._compare(self, fake_flavor, flavor)
 
     def test_get_by_name(self):
-        with mock.patch.object(db, 'flavor_get_by_name') as get_by_name:
+        with mock.patch.object(flavor_obj, '_flavor_get_by_name_db') as get_by_name:
             get_by_name.return_value = fake_flavor
             flavor = flavor_obj.Flavor.get_by_name(self.context, 'm1.foo')
             self._compare(self, fake_flavor, flavor)
 
     def test_get_by_flavor_id(self):
-        with mock.patch.object(db, 'flavor_get_by_flavor_id') as get_by_id:
+        with mock.patch.object(flavor_obj, '_flavor_get_by_flavor_id_db') as get_by_id:
             get_by_id.return_value = fake_flavor
             flavor = flavor_obj.Flavor.get_by_flavor_id(self.context,
                                                         'm1.foo')
@@ -69,7 +69,7 @@ class _TestFlavor(object):
     def test_add_access(self):
         elevated = self.context.elevated()
         flavor = flavor_obj.Flavor(context=elevated, flavorid='123')
-        with mock.patch.object(db, 'flavor_access_add') as add:
+        with mock.patch.object(flavor_obj, '_flavor_access_add_db') as add:
             flavor.add_access('456')
             add.assert_called_once_with(elevated, '123', '456')
 
@@ -81,7 +81,7 @@ class _TestFlavor(object):
     def test_remove_access(self):
         elevated = self.context.elevated()
         flavor = flavor_obj.Flavor(context=elevated, flavorid='123')
-        with mock.patch.object(db, 'flavor_access_remove') as remove:
+        with mock.patch.object(flavor_obj, '_flavor_access_remove_db') as remove:
             flavor.remove_access('456')
             remove.assert_called_once_with(elevated, '123', '456')
 
@@ -196,7 +196,7 @@ class _TestFlavor(object):
 
     def test_destroy(self):
         flavor = flavor_obj.Flavor(context=self.context, id=123, name='foo')
-        with mock.patch.object(db, 'flavor_destroy') as destroy:
+        with mock.patch.object(flavor_obj, '_flavor_destroy_db') as destroy:
             flavor.destroy()
             destroy.assert_called_once_with(self.context, flavor.name)
 
@@ -226,7 +226,7 @@ class TestFlavorRemote(test_objects._RemoteTest, _TestFlavor):
 
 class _TestFlavorList(object):
     def test_get_all(self):
-        with mock.patch.object(db, 'flavor_get_all') as get_all:
+        with mock.patch.object(flavor_obj, '_flavor_get_all_db') as get_all:
             get_all.return_value = [fake_flavor]
             filters = {'min_memory_mb': 4096}
             flavors = flavor_obj.FlavorList.get_all(self.context,
