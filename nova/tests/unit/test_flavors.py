@@ -67,6 +67,19 @@ DEFAULT_FLAVOR_OBJS = [
 
 class InstanceTypeTestCase(test.TestCase):
     """Test cases for flavor  code."""
+
+    def setUp(self):
+        super(InstanceTypeTestCase, self).setUp()
+        # By default 5 flavors are created in DB during migration
+        # As they interfere with CellsV2 use-case, we remove and re-create
+        # them
+        map(flavors.destroy, [x["name"] for x in DEFAULT_FLAVORS])
+        # Now recreate them
+        for f in DEFAULT_FLAVORS:
+            flavors.create(f["name"], f["memory_mb"], f["vcpus"],
+                           f["root_gb"], f["ephemeral_gb"], f["flavorid"],
+                           f["swap"], f["rxtx_factor"], f["is_public"])
+
     def _generate_name(self):
         """return a name not in the DB."""
         nonexistent_flavor = str(int(time.time()))
@@ -211,7 +224,6 @@ class InstanceTypeTestCase(test.TestCase):
 
     def test_get_all_flavors_sorted_list_marker(self):
         all_flavors = flavors.get_all_flavors_sorted_list()
-
         # Set the 3rd result as the marker
         marker_flavorid = all_flavors[2].flavorid
         marked_flavors = flavors.get_all_flavors_sorted_list(
@@ -252,6 +264,8 @@ class InstanceTypeTestCase(test.TestCase):
         self.assertIn(flav2.id, returned_flavors_ids)
 
     def test_get_inactive_flavors_with_same_flavorid(self):
+        for key in DEFAULT_FLAVORS:
+            flavors.destroy(key["name"])
         flav1 = flavors.create('flavor', 256, 1, 120, 100, "flavid")
         flavors.destroy('flavor')
         flav2 = flavors.create('flavor', 512, 4, 250, 100, "flavid")
@@ -260,9 +274,10 @@ class InstanceTypeTestCase(test.TestCase):
         self.assertNotIn(flav1.id, returned_flavors_ids)
         self.assertIn(flav2.id, returned_flavors_ids)
 
-        returned_flavors_ids = flavors.get_all_flavors(inactive=True).keys()
-        self.assertIn(flav1.id, returned_flavors_ids)
-        self.assertIn(flav2.id, returned_flavors_ids)
+        returned_flavors_ids = flavors.get_all_flavors(inactive=True,
+                                                      key="flavorid").keys()
+        self.assertIn(flav1.flavorid, returned_flavors_ids)
+        self.assertIn(flav2.flavorid, returned_flavors_ids)
 
 
 class InstanceTypeToolsTest(test.TestCase):
@@ -539,27 +554,26 @@ class CreateInstanceTypeTest(test.TestCase):
 
         # Ensure new type shows up in list
         new_list = flavors.get_all_flavors(key="flavorid")
-        print "----------",original_list,len(original_list)
-        print "----------",new_list,len(new_list)
         self.assertNotEqual(len(original_list), len(new_list),
                             'flavor was not created')
 
     def test_create_then_delete(self):
-        original_list = flavors.get_all_flavors()
+        original_list = flavors.get_all_flavors(key="flavorid")
 
         flavor = flavors.create('flavor', 64, 1, 120)
 
         # Ensure new type shows up in list
-        new_list = flavors.get_all_flavors()
+        new_list = flavors.get_all_flavors(key="flavorid")
         self.assertNotEqual(len(original_list), len(new_list),
                             'instance type was not created')
 
         flavors.destroy('flavor')
         self.assertRaises(exception.FlavorNotFound,
-                          flavors.get_flavor, flavor.id)
+                          flavors.get_flavor_by_flavor_id,
+                          flavor.flavorid, read_deleted="no")
 
         # Deleted instance should not be in list anymore
-        new_list = flavors.get_all_flavors()
+        new_list = flavors.get_all_flavors(key="flavorid")
         self.assertEqual(len(original_list), len(new_list))
         for k in original_list.keys():
             f = original_list[k]

@@ -89,7 +89,7 @@ class _TestFlavor(object):
         flavor = flavor_obj.Flavor(context=self.context)
         flavor.name = 'm1.foo'
         flavor.extra_specs = fake_flavor['extra_specs']
-        with mock.patch.object(flavor, '_flavor_create_in_db') as create:
+        with mock.patch.object(flavor_obj, '_flavor_create_db') as create:
             create.return_value = fake_flavor
             flavor.create()
         self.assertEqual(self.context, flavor._context)
@@ -105,16 +105,15 @@ class _TestFlavor(object):
         flavor.projects = ['project-1', 'project-2']
 
         db_flavor = dict(fake_flavor, projects=list(flavor.projects))
-
-        with mock.patch.multiple(db, flavor_create=mock.DEFAULT,
-                                 flavor_access_get_by_flavor_id=mock.DEFAULT
+        with mock.patch.multiple(flavor_obj, _flavor_create_db=mock.DEFAULT,
+                                _flavor_access_get_by_flavor_id_db=mock.DEFAULT
                                  ) as methods:
-            methods['flavor_create'].return_value = db_flavor
-            methods['flavor_access_get_by_flavor_id'].return_value = [
+            methods['_flavor_create_db'].return_value = db_flavor
+            methods['_flavor_access_get_by_flavor_id_db'].return_value = [
                 {'project_id': 'project-1'},
                 {'project_id': 'project-2'}]
             flavor.create()
-            methods['flavor_create'].assert_called_once_with(
+            methods['_flavor_create_db'].assert_called_once_with(
                 context,
                 {'name': 'm1.foo',
                  'extra_specs': fake_flavor['extra_specs']},
@@ -130,10 +129,10 @@ class _TestFlavor(object):
         flavor = flavor_obj.Flavor(context=self.context, id=123)
         self.assertRaises(exception.ObjectActionError, flavor.create)
 
-    @mock.patch('nova.db.flavor_access_add')
-    @mock.patch('nova.db.flavor_access_remove')
-    @mock.patch('nova.db.flavor_extra_specs_delete')
-    @mock.patch('nova.db.flavor_extra_specs_update_or_create')
+    @mock.patch('nova.objects.flavor._flavor_access_add_db')
+    @mock.patch('nova.objects.flavor._flavor_access_remove_db')
+    @mock.patch('nova.objects.flavor._flavor_extra_specs_delete_db')
+    @mock.patch('nova.objects.flavor._flavor_extra_specs_update_or_create_db')
     def test_save(self, mock_update, mock_delete, mock_remove, mock_add):
         ctxt = self.context.elevated()
         extra_specs = {'key1': 'value1', 'key2': 'value2'}
@@ -173,9 +172,9 @@ class _TestFlavor(object):
         self.assertEqual(['project-1', 'project-3'], flavor.projects)
         mock_add.assert_called_once_with(ctxt, 'foo', 'project-3')
 
-    @mock.patch('nova.db.flavor_create')
-    @mock.patch('nova.db.flavor_extra_specs_delete')
-    @mock.patch('nova.db.flavor_extra_specs_update_or_create')
+    @mock.patch('nova.objects.flavor._flavor_create_db')
+    @mock.patch('nova.objects.flavor._flavor_extra_specs_delete_db')
+    @mock.patch('nova.objects.flavor._flavor_extra_specs_update_or_create_db')
     def test_save_deleted_extra_specs(self, mock_update, mock_delete,
                                       mock_create):
         mock_create.return_value = dict(fake_flavor,
@@ -203,7 +202,8 @@ class _TestFlavor(object):
 
     def test_load_projects(self):
         flavor = flavor_obj.Flavor(context=self.context, flavorid='foo')
-        with mock.patch.object(db, 'flavor_access_get_by_flavor_id') as get:
+        with mock.patch.object(flavor_obj,
+                               '_flavor_access_get_by_flavor_id_db') as get:
             get.return_value = [{'project_id': 'project-1'}]
             projects = flavor.projects
 

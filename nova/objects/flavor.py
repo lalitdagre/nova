@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
 from nova import db
 from nova import exception
 from nova import objects
@@ -32,6 +33,45 @@ from oslo_db import exception as db_exc
 OPTIONAL_FIELDS = ['extra_specs', 'projects']
 
 
+def _migrate_flavor_to_api(context, values, flavor_id):
+    tvalues = copy.deepcopy(values)
+    del tvalues['id']
+    access = db.flavor_access_get_by_flavor_id(context, flavor_id)
+    _flavor_create_db(context, tvalues, projects=access)
+
+
+def _flavor_get_id_from_flavor_db(context, flavor_id, session=None):
+    result = _flavor_get_id_from_flavor_query_db(context, flavor_id,
+                                                     session=session).\
+                    first()
+    if not result:
+        raise exception.FlavorNotFound(flavor_id=flavor_id)
+    return result[0]
+
+
+def _flavor_access_get_by_flavor_id_db(context, flavor_id):
+    """Get flavor access list by flavor id."""
+    session = db_api.get_api_session()
+    flavor_id_subq = \
+            _flavor_get_id_from_flavor_query_db(context, flavor_id, session)
+    access_refs = _flavor_access_query_db(context, session).\
+                        filter_by(flavor_id=flavor_id_subq).\
+                        all()
+    return access_refs
+
+
+def _flavor_get_id_from_flavor_query_db(context, flavor_id, session=None):
+    return db_api.model_query(context, api_models.Flavors,
+                       (api_models.Flavors.id,),
+                       read_deleted="no", session=session).\
+                filter_by(flavorid=flavor_id)
+
+
+def _flavor_access_query_db(context, session=None):
+    return db_api.model_query(context, api_models.FlavorProjects,
+                       session=session, read_deleted="no")
+
+
 def _flavor_get_query_db(context, session=None, read_deleted=None):
     query = db_api.model_query(context, api_models.Flavors, session=session,
                               read_deleted=read_deleted).\
@@ -45,30 +85,178 @@ def _flavor_get_query_db(context, session=None, read_deleted=None):
     return query
 
 
-def _sort_flavor_list(dictlist):
+def _sort_flavor_list(dictlist, key):
+
+    """_sort_flavor_list takes list containing dictionary and returns the sorted
+    list which is sorted by key
     """
-    _sort_flavor_list takes list containing dictionary and returns the sorted list
-    which is sorted by flavorid
-    """
-    return sorted(dictlist, key=itemgetter('flavorid'))
+    return sorted(dictlist, key=itemgetter(key))
 
 
 def _limit_flavor_list(flavorlist, limit):
-    """
-    _limit_flavor_list takes flavor list and limit count. It returns the flavors
-    till the limit as upperlimit of flavor list.
+
+    """_limit_flavor_list takes flavor list and limit count. It returns the
+    flavors till the limit as upperlimit of flavor list.
     """
     return flavorlist[:limit]
 
 
 def _flavor_union_list(flavor_list1, flavor_list2):
-    """
-    _flavor_union_list takes two lists containing dictionary. It returns
+
+    """_flavor_union_list takes two lists containing dictionary. It returns
     union of input lists by key as flavorid
     """
     flavor_list1_ids = [x["flavorid"] for x in flavor_list1]
     return flavor_list1 + [x for x in flavor_list2 if x["flavorid"]
                                            not in flavor_list1_ids]
+
+
+def _flavor_access_add_db(context, flavor_id, project_id):
+    """Add given tenant to the flavor access list."""
+    session = db_api.get_api_session()
+    flavor_id = _flavor_get_id_from_flavor_db(context, flavor_id, session)
+
+    access_ref = api_models.FlavorProjects()
+    access_ref.update({"flavor_id": flavor_id,
+                       "project_id": project_id})
+    try:
+        access_ref.save()
+    except db_exc.DBDuplicateEntry:
+        raise exception.FlavorAccessExists(flavor_id=flavor_id,
+                                            project_id=project_id)
+    return access_ref
+
+
+def _flavor_access_remove_db(context, flavor_id, project_id):
+    """Remove given tenant from the flavor access list."""
+    session = db_api.get_api_session()
+    flavor_id = _flavor_get_id_from_flavor_db(context, flavor_id, session)
+
+    count = _flavor_access_query_db(context, session).\
+                    filter_by(flavor_id=flavor_id).\
+                    filter_by(project_id=project_id).\
+                    soft_delete(synchronize_session=False)
+    if count == 0:
+        raise exception.FlavorAccessNotFound(flavor_id=flavor_id,
+                                             project_id=project_id)
+
+
+def _flavor_extra_specs_get_query_db(context, flavor_id, session=None):
+    flavor_id_subq = \
+            _flavor_get_id_from_flavor_query_db(context, flavor_id)
+
+    return db_api.model_query(context, api_models.FlavorExtraSpecs,
+                       session=session, read_deleted="no").\
+                filter_by(flavor_id=flavor_id_subq)
+
+
+def _flavor_extra_specs_delete_db(context, flavor_id, key):
+    session = db_api.get_api_session()
+    result = _flavor_extra_specs_get_query_db(context, flavor_id, session).\
+                     filter(api_models.FlavorExtraSpecs.key == key).\
+                     soft_delete(synchronize_session=False)
+    # did not find the extra spec
+    if result == 0:
+        raise exception.FlavorExtraSpecsNotFound(
+                extra_specs_key=key, flavor_id=flavor_id)
+
+
+def _flavor_extra_specs_update_or_create_db(context, flavor_id, specs,
+                                               max_retries=10):
+    for attempt in range(max_retries):
+        try:
+            session = db_api.get_api_session()
+            with session.begin():
+                flavor_id = _flavor_get_id_from_flavor_db(context,
+                                                         flavor_id, session)
+                spec_refs = db_api.model_query(context,
+                                        api_models.FlavorExtraSpecs,
+                                        session=session, read_deleted="no").\
+                  filter_by(flavor_id=flavor_id).\
+                  filter(api_models.FlavorExtraSpecs.key.in_(specs.keys())).\
+                  all()
+
+                existing_keys = set()
+                for spec_ref in spec_refs:
+                    key = spec_ref["key"]
+                    existing_keys.add(key)
+                    spec_ref.update({"value": specs[key]})
+
+                for key, value in specs.items():
+                    if key in existing_keys:
+                        continue
+                    spec_ref = api_models.FlavorExtraSpecs()
+                    spec_ref.update({"key": key, "value": value,
+                                     "flavor_id": flavor_id})
+                    spec_ref.save(session)
+
+            return specs
+        except db_exc.DBDuplicateEntry:
+            # a concurrent transaction has been committed,
+            # try again unless this was the last attempt
+            if attempt == max_retries - 1:
+                raise exception.FlavorExtraSpecUpdateCreateFailed(
+                                    id=flavor_id, retries=max_retries)
+
+
+def _flavor_create_db(context, values, projects=None):
+
+    """Create a new instance type. In order to pass in extra specs,
+    the values dict should contain a 'extra_specs' key/value pair:
+
+    {'extra_specs' : {'k1': 'v1', 'k2': 'v2', ...}}
+
+    """
+    specs = values.get('extra_specs')
+    specs_refs = []
+    if specs:
+        for k, v in specs.items():
+            specs_ref = api_models.FlavorExtraSpecs()
+            specs_ref['key'] = k
+            specs_ref['value'] = v
+            specs_refs.append(specs_ref)
+
+    values['extra_specs'] = specs_refs
+    flavors_ref = api_models.Flavors()
+    flavors_ref.update(values)
+    if projects is None:
+        projects = []
+
+    session = db_api.get_api_session()
+    with session.begin():
+        try:
+            flavors_ref.save(session)
+        except db_exc.DBDuplicateEntry as e:
+            if 'flavorid' in e.columns:
+                raise exception.FlavorIdExists(
+                                          flavor_id=values['flavorid'])
+            raise exception.FlavorExists(name=values['name'])
+        except Exception as e:
+            raise db_exc.DBError(e)
+        for project in set(projects):
+            access_ref = api_models.FlavorProjects()
+            access_ref.update({"flavor_id": flavors_ref.id,
+                               "project_id": project})
+            access_ref.save(session)
+
+    specs = values.get('extra_specs')
+    return db_api._dict_with_extra_specs(flavors_ref)
+
+
+def _flavor_by_name_exist_in_db(context, f_name):
+    try:
+        db.flavor_get_by_name(context, f_name)
+        return True
+    except exception.FlavorNotFoundByName:
+        return False
+
+
+def _flavor_by_flavor_id_exist_in_db(context, f_id):
+    try:
+        db.flavor_get_by_flavor_id(context, f_id)
+        return True
+    except exception.FlavorNotFound:
+        return False
 
 
 # TODO(berrange): Remove NovaObjectDictCompat
@@ -127,7 +315,7 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
     @base.remotable
     def _load_projects(self):
         self.projects = [x['project_id'] for x in
-                         db.flavor_access_get_by_flavor_id(self._context,
+                         _flavor_access_get_by_flavor_id_db(self._context,
                                                            self.flavorid)]
         self.obj_reset_changes(['projects'])
 
@@ -239,6 +427,7 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         except exception.FlavorNotFound:
             db_flavor = db.flavor_get_by_flavor_id(context, flavor_id,
                                                    read_deleted)
+            _migrate_flavor_to_api(context, db_flavor, flavor_id)
         return cls._from_db_object(context, cls(context), db_flavor,
                                    expected_attrs=['extra_specs'])
 
@@ -258,20 +447,6 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         db.flavor_access_remove(self._context, self.flavorid, project_id)
         self._load_projects()
 
-    def _flavor_by_name_exist_in_db(self, f_name):
-        try:
-            db.flavor_get_by_name(self._context, f_name)
-            return True
-        except exception.FlavorNotFoundByName:
-            return False
-
-    def _flavor_by_flavor_id_exist_in_db(self, f_id):
-        try:
-            db.flavor_get_by_flavor_id(self._context, f_id)
-            return True
-        except exception.FlavorNotFound:
-            return False
-
     @base.remotable
     def create(self):
         if self.obj_attr_is_set('id'):
@@ -284,56 +459,16 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
                 expected_attrs.append(attr)
         projects = updates.pop('projects', [])
 
-        if (self._flavor_by_flavor_id_exist_in_db(updates.get('flavorid'))):
+        if (_flavor_by_flavor_id_exist_in_db(self._context,
+                                              updates.get('flavorid'))):
             raise exception.FlavorIdExists(flavor_id=updates.get('flavorid'))
-        if (self._flavor_by_name_exist_in_db(updates.get('name'))):
+        if (_flavor_by_name_exist_in_db(self._context, updates.get('name'))):
             raise exception.FlavorExists(name=updates.get('name'))
 
-        db_flavor = self._flavor_create_in_db(self._context, updates, projects)
+        db_flavor = _flavor_create_db(self._context, updates,
+                                          projects=projects)
         self._from_db_object(self._context, self, db_flavor,
                              expected_attrs=expected_attrs)
-
-    def _flavor_create_in_db(self, context, values, projects=None):
-        """Create a new instance type. In order to pass in extra specs,
-        the values dict should contain a 'extra_specs' key/value pair:
-
-        {'extra_specs' : {'k1': 'v1', 'k2': 'v2', ...}}
-
-        """
-        specs = values.get('extra_specs')
-        specs_refs = []
-        if specs:
-            for k, v in specs.items():
-                specs_ref = api_models.FlavorExtraSpecs()
-                specs_ref['key'] = k
-                specs_ref['value'] = v
-                specs_refs.append(specs_ref)
-
-        values['extra_specs'] = specs_refs
-        flavors_ref = api_models.Flavors()
-        flavors_ref.update(values)
-        if projects is None:
-            projects = []
-
-        session = db_api.get_api_session()
-        with session.begin():
-            try:
-                flavors_ref.save(session)
-            except db_exc.DBDuplicateEntry as e:
-                if 'flavorid' in e.columns:
-                    raise exception.FlavorIdExists(
-                                              flavor_id=values['flavorid'])
-                raise exception.FlavorExists(name=values['name'])
-            except Exception as e:
-                raise db_exc.DBError(e)
-            for project in set(projects):
-                access_ref = api_models.FlavorProjects()
-                access_ref.update({"flavor_id": flavors_ref.id,
-                                   "project_id": project})
-                access_ref.save(session)
-
-        specs = values.get('extra_specs')
-        return db_api._dict_with_extra_specs(flavors_ref)
 
     @base.remotable
     def save_projects(self, to_add=None, to_delete=None):
@@ -347,9 +482,9 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         to_delete = to_delete if to_delete is not None else []
 
         for project_id in to_add:
-            db.flavor_access_add(self._context, self.flavorid, project_id)
+            _flavor_access_add_db(self._context, self.flavorid, project_id)
         for project_id in to_delete:
-            db.flavor_access_remove(self._context, self.flavorid, project_id)
+            _flavor_access_remove_db(self._context, self.flavorid, project_id)
         self.obj_reset_changes(['projects'])
 
     @base.remotable
@@ -364,11 +499,11 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         to_delete = to_delete if to_delete is not None else []
 
         if to_add:
-            db.flavor_extra_specs_update_or_create(self._context,
+            _flavor_extra_specs_update_or_create_db(self._context,
                                                    self.flavorid,
                                                    to_add)
         for key in to_delete:
-            db.flavor_extra_specs_delete(self._context, self.flavorid, key)
+            _flavor_extra_specs_delete_db(self._context, self.flavorid, key)
         self.obj_reset_changes(['extra_specs'])
 
     def save(self):
@@ -429,12 +564,15 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
     def destroy(self):
         try:
             self._flavor_destroy_from_db(self._context, self.name)
-        except exception.FlavorNotFoundByName:
-            pass
-        try:
-            db.flavor_destroy(self._context, self.name)
-        except exception.FlavorNotFoundByName:
-            pass
+            try:
+                db.flavor_destroy(self._context, self.name)
+            except Exception:
+                pass
+        except Exception:
+            try:
+                db.flavor_destroy(self._context, self.name)
+            except Exception:
+                raise
 
 
 @base.NovaObjectRegistry.register
@@ -444,9 +582,8 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
     fields = {
         'objects': fields.ListOfObjectsField('Flavor'),
         }
-    child_versions = {
-        '1.0': '1.0',
-        '1.1': '1.1',
+    obj_relationships = {
+        'objects': [('1.0', '1.0'), ('1.1', '1.1')]
         }
 
     @base.remotable_classmethod
@@ -456,8 +593,6 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
                                        filters=filters, sort_key=sort_key,
                                        sort_dir=sort_dir, limit=limit,
                                        marker=marker)
-        cc=base.obj_make_list(context, cls(context), objects.Flavor,db_flavors, expected_attrs=['extra_specs'])
-	print "GET ALL : ", cc 
         return base.obj_make_list(context, cls(context), objects.Flavor,
                                   db_flavors, expected_attrs=['extra_specs'])
 
@@ -509,7 +644,7 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
                         filter_by(flavorid=marker).\
                         first()
             if not marker_row:
-                raise exception.MarkerNotFound(marker)
+                pass
 
         query = sqlalchemyutils.paginate_query(query, api_models.Flavors,
                                            limit,
@@ -520,8 +655,8 @@ class FlavorList(base.ObjectListBase, base.NovaObject):
         nova_flavors = db.flavor_get_all(context, inactive=inactive,
                                        filters=filters, sort_key=sort_key,
                                        sort_dir=sort_dir, limit=limit,
-                                       marker=marker)
+                                       marker=None)
         api_flavors = [db_api._dict_with_extra_specs(i) for i in flavors]
         flavor_union = _flavor_union_list(api_flavors, nova_flavors)
-        flavor_union = _sort_flavor_list(flavor_union)
+        flavor_union = _sort_flavor_list(flavor_union, sort_key)
         return _limit_flavor_list(flavor_union, limit)

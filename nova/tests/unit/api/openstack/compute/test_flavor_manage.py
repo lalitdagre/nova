@@ -27,8 +27,8 @@ from nova.api.openstack.compute.legacy_v2.contrib import flavor_access \
 from nova.api.openstack.compute.legacy_v2.contrib import flavormanage \
         as flavormanage_v2
 from nova.compute import flavors
-from nova import db
 from nova import exception
+from nova.objects import flavor as flavor_obj
 from nova import test
 from nova.tests.unit.api.openstack import fakes
 
@@ -93,6 +93,14 @@ def fake_create(context, kwargs, projects=None):
     return newflavor
 
 
+def fake_flavor_by_name_exist_in_db(context, fname):
+    return False
+
+
+def fake_flavor_by_flavor_id_exist_in_db(context, fid):
+    return False
+
+
 class FlavorManageTestV21(test.NoDBTestCase):
     controller = flavormanage_v21.FlavorManageController()
     validation_error = exception.ValidationError
@@ -104,7 +112,11 @@ class FlavorManageTestV21(test.NoDBTestCase):
                        "get_flavor_by_flavor_id",
                        fake_get_flavor_by_flavor_id)
         self.stubs.Set(flavors, "destroy", fake_destroy)
-        self.stubs.Set(db, "flavor_create", fake_create)
+        self.stubs.Set(flavor_obj, "_flavor_create_in_db", fake_create)
+        self.stubs.Set(flavor_obj, "_flavor_by_name_exist_in_db",
+                                    fake_flavor_by_name_exist_in_db)
+        self.stubs.Set(flavor_obj, "_flavor_by_flavor_id_exist_in_db",
+                                    fake_flavor_by_flavor_id_exist_in_db)
         self.app = self._setup_app()
 
         self.request_body = {
