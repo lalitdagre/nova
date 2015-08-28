@@ -112,7 +112,7 @@ class FlavorManageTestV21(test.NoDBTestCase):
                        "get_flavor_by_flavor_id",
                        fake_get_flavor_by_flavor_id)
         self.stubs.Set(flavors, "destroy", fake_destroy)
-        self.stubs.Set(flavor_obj, "_flavor_create_in_db", fake_create)
+        self.stubs.Set(flavor_obj, "_flavor_create_db", fake_create)
         self.stubs.Set(flavor_obj, "_flavor_by_name_exist_in_db",
                                     fake_flavor_by_name_exist_in_db)
         self.stubs.Set(flavor_obj, "_flavor_by_flavor_id_exist_in_db",

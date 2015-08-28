@@ -14,7 +14,6 @@
 
 import mock
 
-from nova import db
 from nova import exception
 from nova.objects import flavor as flavor_obj
 from nova.tests.unit.objects import test_objects
@@ -54,13 +53,15 @@ class _TestFlavor(object):
             self._compare(self, fake_flavor, flavor)
 
     def test_get_by_name(self):
-        with mock.patch.object(flavor_obj, '_flavor_get_by_name_db') as get_by_name:
+        with mock.patch.object(flavor_obj, '_flavor_get_by_name_db')\
+                                as get_by_name:
             get_by_name.return_value = fake_flavor
             flavor = flavor_obj.Flavor.get_by_name(self.context, 'm1.foo')
             self._compare(self, fake_flavor, flavor)
 
     def test_get_by_flavor_id(self):
-        with mock.patch.object(flavor_obj, '_flavor_get_by_flavor_id_db') as get_by_id:
+        with mock.patch.object(flavor_obj, '_flavor_get_by_flavor_id_db')\
+                               as get_by_id:
             get_by_id.return_value = fake_flavor
             flavor = flavor_obj.Flavor.get_by_flavor_id(self.context,
                                                         'm1.foo')
@@ -81,7 +82,8 @@ class _TestFlavor(object):
     def test_remove_access(self):
         elevated = self.context.elevated()
         flavor = flavor_obj.Flavor(context=elevated, flavorid='123')
-        with mock.patch.object(flavor_obj, '_flavor_access_remove_db') as remove:
+        with mock.patch.object(flavor_obj, '_flavor_access_remove_db')\
+                               as remove:
             flavor.remove_access('456')
             remove.assert_called_once_with(elevated, '123', '456')
 

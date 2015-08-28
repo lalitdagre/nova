@@ -258,7 +258,8 @@ def _flavor_by_flavor_id_exist_in_db(context, f_id):
     except exception.FlavorNotFound:
         return False
 
-def _flavor_get_all_db( context, inactive=False, filters=None,
+
+def _flavor_get_all_db(context, inactive=False, filters=None,
                       sort_key='flavorid', sort_dir='asc', limit=None,
                       marker=None):
     """Returns all flavors.
@@ -300,7 +301,8 @@ def _flavor_get_all_db( context, inactive=False, filters=None,
             query = query.filter(the_filter[0])
     marker_row = None
     if marker is not None:
-        marker_row = _flavor_get_query_db(context, session, read_deleted=read_deleted).\
+        marker_row = _flavor_get_query_db(context, session,
+                      read_deleted=read_deleted).\
                     filter_by(flavorid=marker).\
                     first()
         if not marker_row:
@@ -344,6 +346,7 @@ def _flavor_destroy_db(context, name):
                     filter_by(flavor_id=ref['id']).\
                     soft_delete()
 
+
 def _flavor_get_by_flavor_id_db(context, flavor_id,
                                          read_deleted):
     """Returns a dict describing specific flavor_id."""
@@ -358,7 +361,7 @@ def _flavor_get_by_flavor_id_db(context, flavor_id,
     return db_api._dict_with_extra_specs(result)
 
 
-def _flavor_get_by_name_db( context, name):
+def _flavor_get_by_name_db(context, name):
     """Returns a dict describing specific flavor."""
     session = db_api.get_api_session()
     result = _flavor_get_query_db(context, session).\
@@ -379,10 +382,12 @@ def _flavor_get_by_id_db(context, id):
         raise exception.FlavorNotFound(flavor_id=id)
     return db_api._dict_with_extra_specs(result)
 
+
 def _flavor_extra_specs_get_db(context, flavor_id):
     session = db_api.get_api_session()
     rows = _flavor_extra_specs_get_query_db(context, flavor_id, session).all()
     return {row['key']: row['value'] for row in rows}
+
 
 def _flavor_get_db(context, id):
     """Returns a dict describing specific flavor."""
@@ -393,6 +398,7 @@ def _flavor_get_db(context, id):
     if not result:
         raise exception.FlavorNotFound(flavor_id=id)
     return db_api._dict_with_extra_specs(result)
+
 
 # TODO(berrange): Remove NovaObjectDictCompat
 @base.NovaObjectRegistry.register
@@ -518,7 +524,6 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
         return cls._from_db_object(context, cls(context), db_flavor,
                                    expected_attrs=['extra_specs'])
 
-    
     @base.remotable_classmethod
     def get_by_flavor_id(cls, context, flavor_id, read_deleted=None):
         try:

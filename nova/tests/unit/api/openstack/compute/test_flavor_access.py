@@ -26,11 +26,11 @@ from nova.api.openstack.compute.legacy_v2.contrib import flavor_access \
         as flavor_access_v2
 from nova.api.openstack.compute.legacy_v2 import flavors as flavors_api
 from nova import context
-from nova import db
 from nova import exception
+from nova.objects import flavor as flavor_obj
 from nova import test
 from nova.tests.unit.api.openstack import fakes
-from nova.objects import flavor as flavor_obj
+
 
 def generate_flavor(flavorid, ispublic):
     return {
