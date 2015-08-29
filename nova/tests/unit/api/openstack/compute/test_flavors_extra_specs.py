@@ -123,7 +123,6 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
                               req, 1, 'key5', body={'key5': 'value5'})
             self.assertRaises(webob.exc.HTTPNotFound, self.controller.delete,
                               req, 1, 'key5')
-
         req = self._get_request('1/os-extra_specs', use_admin_context=True)
         with mock.patch('nova.objects.flavor._flavor_get_by_flavor_id_db')\
                          as mock_get:

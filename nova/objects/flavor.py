@@ -13,6 +13,8 @@
 #    under the License.
 
 import copy
+import functools
+import nova
 from nova import db
 from nova import exception
 from nova import objects
@@ -31,6 +33,24 @@ from nova.db.sqlalchemy import api_models
 from oslo_db import exception as db_exc
 
 OPTIONAL_FIELDS = ['extra_specs', 'projects']
+
+
+def require_context(f):
+    """Decorator to require *any* user or admin context.
+
+    This does no authorization for user or project access matching, see
+    :py:func:`nova.context.authorize_project_context` and
+    :py:func:`nova.context.authorize_user_context`.
+
+    The first argument to the wrapped function must be the context.
+
+    """
+
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        nova.context.require_context(args[0])
+        return f(*args, **kwargs)
+    return wrapper
 
 
 def _migrate_flavor_to_api(context, values, flavor_id):
@@ -85,12 +105,24 @@ def _flavor_get_query_db(context, session=None, read_deleted=None):
     return query
 
 
-def _sort_flavor_list(dictlist, key):
+def _sort_flavor_list(dictlist, key, sort_dir):
 
     """_sort_flavor_list takes list containing dictionary and returns the sorted
     list which is sorted by key
     """
-    return sorted(dictlist, key=itemgetter(key))
+    asc = True if sort_dir is 'asc' else False
+    return sorted(dictlist, key=itemgetter(key), reverse=(not asc))
+
+
+def _flavor_list_by_marker(flavorlist, marker):
+    if marker is None:
+        return flavorlist
+    try:
+        mark = [i for i, _ in enumerate(flavorlist) if _['flavorid']
+                                                     == marker][0] + 1
+        return flavorlist[mark:]
+    except Exception:
+        raise exception.MarkerNotFound(marker)
 
 
 def _limit_flavor_list(flavorlist, limit):
@@ -120,7 +152,7 @@ def _flavor_access_add_db(context, flavor_id, project_id):
     access_ref.update({"flavor_id": flavor_id,
                        "project_id": project_id})
     try:
-        access_ref.save()
+        access_ref.save(session)
     except db_exc.DBDuplicateEntry:
         raise exception.FlavorAccessExists(flavor_id=flavor_id,
                                             project_id=project_id)
@@ -150,6 +182,7 @@ def _flavor_extra_specs_get_query_db(context, flavor_id, session=None):
                 filter_by(flavor_id=flavor_id_subq)
 
 
+@require_context
 def _flavor_extra_specs_delete_db(context, flavor_id, key):
     session = db_api.get_api_session()
     result = _flavor_extra_specs_get_query_db(context, flavor_id, session).\
@@ -161,6 +194,7 @@ def _flavor_extra_specs_delete_db(context, flavor_id, key):
                 extra_specs_key=key, flavor_id=flavor_id)
 
 
+@require_context
 def _flavor_extra_specs_update_or_create_db(context, flavor_id, specs,
                                                max_retries=10):
     for attempt in range(max_retries):
@@ -259,6 +293,7 @@ def _flavor_by_flavor_id_exist_in_db(context, f_id):
         return False
 
 
+@require_context
 def _flavor_get_all_db(context, inactive=False, filters=None,
                       sort_key='flavorid', sort_dir='asc', limit=None,
                       marker=None):
@@ -300,12 +335,14 @@ def _flavor_get_all_db(context, inactive=False, filters=None,
         else:
             query = query.filter(the_filter[0])
     marker_row = None
+    union_marker = 0
     if marker is not None:
         marker_row = _flavor_get_query_db(context, session,
                       read_deleted=read_deleted).\
                     filter_by(flavorid=marker).\
                     first()
         if not marker_row:
+            union_marker = 1
             pass
 
     query = sqlalchemyutils.paginate_query(query, api_models.Flavors,
@@ -320,7 +357,10 @@ def _flavor_get_all_db(context, inactive=False, filters=None,
                                    marker=None)
     api_flavors = [db_api._dict_with_extra_specs(i) for i in flavors]
     flavor_union = _flavor_union_list(api_flavors, nova_flavors)
-    flavor_union = _sort_flavor_list(flavor_union, sort_key)
+    flavor_union = _sort_flavor_list(flavor_union, sort_key, sort_dir)
+    if (union_marker == 1):
+        flavor_union = _flavor_list_by_marker(flavor_union, marker)
+
     return _limit_flavor_list(flavor_union, limit)
 
 
@@ -334,7 +374,11 @@ def _flavor_destroy_db(context, name):
                     filter_by(name=name).\
                     first()
         if not ref:
-            raise exception.FlavorNotFoundByName(flavor_name=name)
+            try:
+                db.flavor_destroy(context, name)
+                return
+            except exception.FlavorNotFoundByName:
+                raise
 
         ref.soft_delete(session=session)
         db_api.model_query(context, api_models.FlavorExtraSpecs,
@@ -345,8 +389,13 @@ def _flavor_destroy_db(context, name):
                     session=session, read_deleted="no").\
                     filter_by(flavor_id=ref['id']).\
                     soft_delete()
+        try:
+            db.flavor_destroy(context, name)
+        except exception.FlavorNotFoundByName:
+            pass
 
 
+@require_context
 def _flavor_get_by_flavor_id_db(context, flavor_id,
                                          read_deleted):
     """Returns a dict describing specific flavor_id."""
@@ -361,6 +410,7 @@ def _flavor_get_by_flavor_id_db(context, flavor_id,
     return db_api._dict_with_extra_specs(result)
 
 
+@require_context
 def _flavor_get_by_name_db(context, name):
     """Returns a dict describing specific flavor."""
     session = db_api.get_api_session()
@@ -383,12 +433,14 @@ def _flavor_get_by_id_db(context, id):
     return db_api._dict_with_extra_specs(result)
 
 
+@require_context
 def _flavor_extra_specs_get_db(context, flavor_id):
     session = db_api.get_api_session()
     rows = _flavor_extra_specs_get_query_db(context, flavor_id, session).all()
     return {row['key']: row['value'] for row in rows}
 
 
+@require_context
 def _flavor_get_db(context, id):
     """Returns a dict describing specific flavor."""
     session = db_api.get_api_session()
@@ -645,17 +697,7 @@ class Flavor(base.NovaPersistentObject, base.NovaObject,
 
     @base.remotable
     def destroy(self):
-        try:
-            _flavor_destroy_db(self._context, self.name)
-            try:
-                db.flavor_destroy(self._context, self.name)
-            except Exception:
-                pass
-        except Exception:
-            try:
-                db.flavor_destroy(self._context, self.name)
-            except Exception:
-                raise
+        _flavor_destroy_db(self._context, self.name)
 
 
 @base.NovaObjectRegistry.register
