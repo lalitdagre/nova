@@ -17,8 +17,8 @@
 import six
 
 from nova import context
-from nova import db
 from nova import exception as ex
+from nova.objects import flavor as flavor_obj
 from nova import test
 from nova.tests import fixtures as nova_fixtures
 from nova.tests.functional import integrated_helpers as helper
@@ -147,8 +147,8 @@ class FlavorManageFullstack(test.TestCase):
         self.assertEqual(400, resp.status, resp)
         # ... and ensure that we didn't leak it into the db
         self.assertRaises(ex.FlavorNotFound,
-                          db.flavor_get_by_flavor_id,
-                          ctx, flav['flavor']['id'])
+                          flavor_obj._flavor_get_by_flavor_id_db,
+                          ctx, flav['flavor']['id'], None)
 
         # bounds conditions - invalid ram
         flav = {'flavor': rand_flavor(ram=0)}
@@ -157,8 +157,8 @@ class FlavorManageFullstack(test.TestCase):
         self.assertEqual(400, resp.status)
         # ... and ensure that we didn't leak it into the db
         self.assertRaises(ex.FlavorNotFound,
-                          db.flavor_get_by_flavor_id,
-                          ctx, flav['flavor']['id'])
+                          flavor_obj._flavor_get_by_flavor_id_db,
+                          ctx, flav['flavor']['id'], None)
 
         # NOTE(sdague): if there are other bounds conditions that
         # should be checked, stack them up here.
@@ -202,7 +202,8 @@ class FlavorManageFullstack(test.TestCase):
         # Create flavor and ensure it made it to the database
         self.api.api_post('flavors', flav1)
 
-        flav1db = db.flavor_get_by_flavor_id(ctx, flav1['flavor']['id'])
+        flav1db = flavor_obj._flavor_get_by_flavor_id_db(ctx,
+                                            flav1['flavor']['id'], None)
         self.assertFlavorDbEqual(flav1['flavor'], flav1db)
 
         # Ensure new flavor is seen in the listing
@@ -212,8 +213,8 @@ class FlavorManageFullstack(test.TestCase):
         # Delete flavor and ensure it was removed from the database
         self.api.api_delete('flavors/%s' % flav1['flavor']['id'])
         self.assertRaises(ex.FlavorNotFound,
-                          db.flavor_get_by_flavor_id,
-                          ctx, flav1['flavor']['id'])
+                          flavor_obj._flavor_get_by_flavor_id_db,
+                          ctx, flav1['flavor']['id'], None)
 
         resp = self.api.api_delete('flavors/%s' % flav1['flavor']['id'],
                                    check_response_status=False)
@@ -232,8 +233,8 @@ class FlavorManageFullstack(test.TestCase):
         self.assertEqual(403, resp.status)
         # ... and that it didn't leak through
         self.assertRaises(ex.FlavorNotFound,
-                        db.flavor_get_by_flavor_id,
-                        ctx, flav1['flavor']['id'])
+                        flavor_obj._flavor_get_by_flavor_id_db,
+                        ctx, flav1['flavor']['id'], None)
 
         # Create the flavor as the admin user
         self.api.api_post('flavors', flav1)
@@ -244,4 +245,5 @@ class FlavorManageFullstack(test.TestCase):
         self.assertEqual(403, resp.status)
         # ... and ensure that we didn't actually delete the flavor,
         # this will throw an exception if we did.
-        db.flavor_get_by_flavor_id(ctx, flav1['flavor']['id'])
+        flavor_obj._flavor_get_by_flavor_id_db(ctx, flav1['flavor']['id'],
+                                               None)

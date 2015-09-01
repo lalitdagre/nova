@@ -114,7 +114,7 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
     def test_not_found_because_flavor(self):
         req = self._get_request('1/os-extra_specs/key5',
                                 use_admin_context=True)
-        with mock.patch('nova.objects.flavor._flavor_get_by_flavor_id_db')\
+        with mock.patch('nova.objects.flavor.Flavor.get_by_flavor_id')\
                          as mock_get:
             mock_get.side_effect = exception.FlavorNotFound(flavor_id='1')
             self.assertRaises(webob.exc.HTTPNotFound, self.controller.show,
@@ -124,7 +124,7 @@ class FlavorsExtraSpecsTestV21(test.TestCase):
             self.assertRaises(webob.exc.HTTPNotFound, self.controller.delete,
                               req, 1, 'key5')
         req = self._get_request('1/os-extra_specs', use_admin_context=True)
-        with mock.patch('nova.objects.flavor._flavor_get_by_flavor_id_db')\
+        with mock.patch('nova.objects.flavor.Flavor.get_by_flavor_id')\
                          as mock_get:
             mock_get.side_effect = exception.FlavorNotFound(flavor_id='1')
             self.assertRaises(webob.exc.HTTPNotFound, self.controller.create,

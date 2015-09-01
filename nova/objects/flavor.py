@@ -32,6 +32,7 @@ from nova.db.sqlalchemy import api as db_api
 from nova.db.sqlalchemy import api_models
 from oslo_db import exception as db_exc
 
+
 OPTIONAL_FIELDS = ['extra_specs', 'projects']
 
 
