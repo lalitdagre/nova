@@ -1,9 +1,3 @@
-# encoding=UTF8
-
-# Copyright 2010 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
-#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -20,54 +14,11 @@
 
 from nova import context
 from nova import exception
+from nova import db
 from nova.objects import flavor as flavor_obj
 from nova import test
 from oslo_db import exception as db_exc
-
-
-class ModelsObjectComparatorMixin(object):
-    def _dict_from_object(self, obj, ignored_keys):
-        if ignored_keys is None:
-            ignored_keys = []
-        if isinstance(obj, dict):
-            obj_items = obj.items()
-        else:
-            obj_items = obj.iteritems()
-        return {k: v for k, v in obj_items
-                if k not in ignored_keys}
-
-    def _assertEqualObjects(self, obj1, obj2, ignored_keys=None):
-        obj1 = self._dict_from_object(obj1, ignored_keys)
-        obj2 = self._dict_from_object(obj2, ignored_keys)
-
-        self.assertEqual(len(obj1),
-                         len(obj2),
-                         "Keys mismatch: %s" %
-                          str(set(obj1.keys()) ^ set(obj2.keys())))
-        for key, value in obj1.items():
-            self.assertEqual(value, obj2[key])
-
-    def _assertEqualListsOfObjects(self, objs1, objs2, ignored_keys=None):
-        obj_to_dict = lambda o: self._dict_from_object(o, ignored_keys)
-        sort_key = lambda d: [d[k] for k in sorted(d)]
-        conv_and_sort = lambda obj: sorted(map(obj_to_dict, obj), key=sort_key)
-
-        self.assertEqual(conv_and_sort(objs1), conv_and_sort(objs2))
-
-    def _assertEqualOrderedListOfObjects(self, objs1, objs2,
-                                         ignored_keys=None):
-        obj_to_dict = lambda o: self._dict_from_object(o, ignored_keys)
-        conv = lambda objs: [obj_to_dict(obj) for obj in objs]
-
-        self.assertEqual(conv(objs1), conv(objs2))
-
-    def _assertEqualListsOfPrimitivesAsSets(self, primitives1, primitives2):
-        self.assertEqual(len(primitives1), len(primitives2))
-        for primitive in primitives1:
-            self.assertIn(primitive, primitives2)
-
-        for primitive in primitives2:
-            self.assertIn(primitive, primitives1)
+from nova.tests.unit.db.test_db_api import ModelsObjectComparatorMixin
 
 
 class BaseFlavorTestCase(test.TestCase, ModelsObjectComparatorMixin):
@@ -95,6 +46,58 @@ class BaseFlavorTestCase(test.TestCase, ModelsObjectComparatorMixin):
         v = self._get_base_values()
         v.update(values)
         return flavor_obj._flavor_create_db(self.ctxt, v, projects)
+
+
+class FlavorMigrateTestCase(BaseFlavorTestCase):
+
+    def test_flavor_create_only_in_api(self):
+        flavor = self._create_flavor({'name': 'abc', 'flavorid': '123',
+                                      'is_public': False})
+        
+        all_flavors=flavor_obj._flavor_get_all_db(self.ctxt) 
+        nova_flavors=db.flavor_get_all(self.ctxt) 
+        self.assertNotEqual(all_flavors, nova_flavors)
+    
+    def test_flavor_migrate(self):
+        db_flavor = db.flavor_get_by_flavor_id(self.ctxt, '1',
+                                                   read_deleted=None)
+        
+        flavor_obj._migrate_flavor_to_api(self.ctxt, db_flavor, '1')
+        db.flavor_destroy(self.ctxt, 'm1.tiny')
+        all_flavors = flavor_obj._flavor_get_all_db(self.ctxt)
+        nova_flavors = db.flavor_get_all(self.ctxt) 
+        self.assertNotEqual(all_flavors, nova_flavors)
+
+    def test_flavor_get_by_flavor_id(self):
+        ignored_keys = ['id', 'deleted', 'deleted_at', 'updated_at',
+                        'created_at', 'extra_specs']
+        flavor_migrated = flavor_obj.Flavor.get_by_flavor_id(self.ctxt, '1',
+                                                            read_deleted=None)
+        db.flavor_destroy(self.ctxt, 'm1.tiny')
+        all_flavors = flavor_obj._flavor_get_all_db(self.ctxt)
+        nova_flavors = db.flavor_get_all(self.ctxt) 
+        self.assertNotEqual(all_flavors, nova_flavors)
+        flavor_fresh = flavor_obj.Flavor.get_by_flavor_id(self.ctxt, '1',
+                                                         read_deleted=None)
+        self._assertEqualObjects(flavor_migrated, flavor_fresh, ignored_keys)
+        
+    def test_flavor_destroy_in_both_db(self):
+        flavor_obj._flavor_destroy_db(self.ctxt, 'm1.tiny')
+        self.assertRaises(exception.FlavorNotFound,
+                         db.flavor_get_by_flavor_id, self.ctxt, '1', 
+                         read_deleted=None)
+        self.assertRaises(exception.FlavorNotFound,
+                         flavor_obj._flavor_get_by_flavor_id_db, self.ctxt, '1', 
+                         read_deleted=None)
+    
+    def test_flavors_union(self):
+        flavor_list1 = [{'name': 'abc', 'flavorid': '123','is_public': False}]
+        flavor_list2 = [{'name': 'abcd', 'flavorid': '1234','is_public': False}]
+        expected_flavors = [{'name': 'abc', 'flavorid': '123','is_public': False},
+                            {'name': 'abcd', 'flavorid': '1234','is_public': False}]
+
+        all_flavors = flavor_obj._flavor_union_list(flavor_list1, flavor_list2)
+        self.assertEqual(all_flavors, expected_flavors)
 
 
 class FlavorTestCase(BaseFlavorTestCase):

@@ -13,8 +13,6 @@
 #    under the License.
 
 import copy
-import functools
-import nova
 from nova import db
 from nova import exception
 from nova import objects
@@ -29,29 +27,12 @@ from sqlalchemy.sql.expression import asc
 from sqlalchemy.sql import true
 
 from nova.db.sqlalchemy import api as db_api
+from nova.db.sqlalchemy.api import require_context
 from nova.db.sqlalchemy import api_models
 from oslo_db import exception as db_exc
 
 
 OPTIONAL_FIELDS = ['extra_specs', 'projects']
-
-
-def require_context(f):
-    """Decorator to require *any* user or admin context.
-
-    This does no authorization for user or project access matching, see
-    :py:func:`nova.context.authorize_project_context` and
-    :py:func:`nova.context.authorize_user_context`.
-
-    The first argument to the wrapped function must be the context.
-
-    """
-
-    @functools.wraps(f)
-    def wrapper(*args, **kwargs):
-        nova.context.require_context(args[0])
-        return f(*args, **kwargs)
-    return wrapper
 
 
 def _migrate_flavor_to_api(context, values, flavor_id):
